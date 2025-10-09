@@ -5,21 +5,6 @@ from lab3_header import *
 
 PI = 3.1415926535
 
-# def _skew(w):
-#     """Return 3x3 skew-symmetric matrix of 3-vector w"""
-#     return np.array([[0, -w[2], w[1]],
-#                      [w[2], 0, -w[0]],
-#                      [-w[1], w[0], 0]])
-
-# def _twist_to_se3(S):
-#     """Convert 6-vector twist (omega, v) to 4x4 se(3) matrix"""
-#     w = S[0:3]
-#     v = S[3:6]
-#     se3 = np.zeros((4,4))
-#     se3[0:3,0:3] = _skew(w)
-#     se3[0:3,3] = v
-#     return se3
-
 def Get_MS():
     """
     Return M (4x4) and S (6x6) screw-axis matrix (each column is a 6-vector).
@@ -32,11 +17,8 @@ def Get_MS():
     # --- Geometry (meters) from Lab3 figures ---
     x1 = -0.15
     y1 = 0.15
-    z1 = 0.01   # 152 mm
-    z2 = z1 + 0.152  # +244 mm
-    z3 = z2 + 0.213  # +213 mm
-    z4 = z3 + 0.083  # +83 mm (wrist start)
-    x_wrist = 0.093  # 93 mm lateral offset
+    z1 = 0.01   
+    z2 = z1 + 0.152  
     ee_up = 0.059 + 0.082    # 59 mm (suction cup up offset)
     ee_forward = 0.0535  # 53.5 mm (forward offset)
 
@@ -103,11 +85,7 @@ def lab_fk(theta1, theta2, theta3, theta4, theta5, theta6):
 
     # Compute T = e^{S1*th1} ... e^{S6*th6} M
     T = np.eye(4)
-    # for i in range(6):
-    #     Si = S[:,i]
-    #     se3 = _twist_to_se3(Si)
-    #     T = T.dot(expm(se3 * thetas[i]))
-    # T = T.dot(M)
+
 
     for i in range(6):
         omega = S[0:3, i]
