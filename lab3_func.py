@@ -110,8 +110,8 @@ def lab_fk(theta1, theta2, theta3, theta4, theta5, theta6):
     # T = T.dot(M)
 
     for i in range(6):
-        omega = S[i][0:3]
-        v = S[i][3:6]
+        omega = S[0:3, i]
+        v = S[3:6, i]
         
         skew = np.array([
             [0,-omega[2], omega[1]],
