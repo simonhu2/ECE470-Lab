@@ -30,8 +30,10 @@ def Get_MS():
     # =================== Your code starts here ====================#
     # Fill in the correct values for S1~6, as well as the M matrix
     # --- Geometry (meters) from Lab3 figures ---
-    z1 = 0.152   # 152 mm
-    z2 = z1 + 0.244  # +244 mm
+    x1 = -0.15
+    y1 = 0.15
+    z1 = 0.01   # 152 mm
+    z2 = z1 + 0.152  # +244 mm
     z3 = z2 + 0.213  # +213 mm
     z4 = z3 + 0.083  # +83 mm (wrist start)
     x_wrist = 0.093  # 93 mm lateral offset
@@ -39,12 +41,12 @@ def Get_MS():
     ee_forward = 0.0535  # 53.5 mm (forward offset)
 
     # Joint centers q_i (base frame) - approximate
-    q1 = np.array([0.0, 0.0, z1])
-    q2 = np.array([0.0, 0.12, z1])
-    q3 = np.array([0.244, 0.12, z1])
-    q4 = np.array([0.244+0.213, 0.12-0.093, z1])
-    q5 = np.array([0.244+0.213, 0.12-0.093+0.083, z1])  # small offset above q4
-    q6 = np.array([0.244+0.213+0.083, 0.12-0.093+0.083, z1])
+    q1 = np.array([x1, y1, z1])
+    q2 = np.array([x1, y1+0.12, z2])
+    q3 = np.array([x1+0.244, y1+0.12, z2])
+    q4 = np.array([x1+0.244+0.213, y1+0.12-0.093, z2])
+    q5 = np.array([x1+0.244+0.213, y1+0.12-0.093+0.083, z2])  # small offset above q4
+    q6 = np.array([x1+0.244+0.213+0.083, y1+0.12-0.093+0.083, z2])
 
     # Axis directions (omega) chosen to match pictures in the manual:
     w1 = np.array([0.0, 0.0, 1.0])  # base yaw (z)
@@ -73,10 +75,12 @@ def Get_MS():
 
     # Home configuration M: end-effector pose at zero joint angles
     p_home = q6 + np.array([0.0, ee_up, ee_forward])
-    R_home = np.eye(3)
-    M = [np.eye(4)]
-    M[0:3,0:3] = R_home
-    M[0:3,3] = p_home
+    M = np.array([
+        [0, -1, 0, p_home[0]],
+        [0, 0, -1, p_home[1]],
+        [1, 0, 0, p_home[2]],
+        [0, 0, 0, 1]
+    ])
     # ==============================================================#
 
     return M, S
@@ -92,11 +96,10 @@ def lab_fk(theta1, theta2, theta3, theta4, theta5, theta6):
     print("Foward kinematics calculated:\n")
     
     # =================== Your code starts here ====================#
-    thetas = [theta1*np.pi/180, theta2*np.pi/180, theta3*np.pi/180, theta4*np.pi/180, theta5*np.pi/180, theta6*np.pi/180]
+    thetas = [theta1, theta2, theta3, theta4, theta5, theta6]
     
     M, S = Get_MS()
-    print(M)
-    print(S)
+
 
     # Compute T = e^{S1*th1} ... e^{S6*th6} M
     T = np.eye(4)
