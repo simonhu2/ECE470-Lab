@@ -1,4 +1,4 @@
-#NOT FINISHED YET
+#NOT FINISHED YET https://www.studocu.com/en-us/document/university-of-illinois-at-urbana-champaign/introduction-to-robotics/ece-470-lab-4-inverse-kinematics/62673605
 #!/usr/bin/env python
 import numpy as np
 from scipy.linalg import expm
