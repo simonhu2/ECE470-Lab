@@ -228,6 +228,86 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
 
 
 
+def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
+    # =================== Your code starts here ====================#
+    yaw_radians = np.radians(yaw_WgripDegree)
+    
+    # Step 1: Convert to base frame (adjust offsets based on your setup)
+    x_base_offset = 0.15
+    y_base_offset = 0.15  
+    z_base_offset = 0.0
+    
+    xgrip = xWgrip + x_base_offset
+    ygrip = yWgrip + y_base_offset
+    zgrip = zWgrip + z_base_offset
+
+    # Step 2: Wrist center
+    x_cen = xgrip - L9 * np.cos(yaw_radians)
+    y_cen = ygrip - L9 * np.sin(yaw_radians)
+    z_cen = zgrip
+
+    # Step 3: Theta1
+    theta1 = np.arctan2(y_cen, x_cen)
+
+    # Step 4: Theta6  
+    theta6 = theta1 + np.pi/2 - yaw_radians
+
+    # Step 5: Virtual point (x_3end, y_3end, z_3end)
+    L_offset = 0.11235 + 0.08535  # d4 + d5
+    
+    # Fixed virtual point calculation
+    x_3end = x_cen - L_offset * np.sin(theta1)
+    y_3end = y_cen + L_offset * np.cos(theta1)
+    z_3end = z_cen  # Same height as wrist center
+
+    # Step 6: Theta2, Theta3, Theta4
+    # Shoulder position (joint 2)
+    x_shoulder = 0
+    y_shoulder = 0
+    z_shoulder = L1  # 0.152m
+
+    # Calculate vector from shoulder to virtual point in the side view plane
+    # Project into the plane rotated by theta1
+    x_proj = (x_3end - x_shoulder) * np.cos(theta1) + (y_3end - y_shoulder) * np.sin(theta1)
+    z_proj = z_3end - z_shoulder
+    
+    # Distance in the side view
+    D = np.sqrt(x_proj**2 + z_proj**2)
+    
+    # UR3 link lengths for IK
+    a1 = 0.24365  # Shoulder to elbow (L3)
+    a2 = 0.21325  # Elbow to wrist (L5)
+    
+    # Check reachability
+    if D > (a1 + a2) or D < abs(a1 - a2):
+        print(f"Target unreachable: D={D:.3f}")
+        # Use safe default angles
+        theta2, theta3, theta4 = 0.0, 0.0, 0.0
+    else:
+        # Law of cosines for theta3
+        cos_theta3 = (D**2 - a1**2 - a2**2) / (2 * a1 * a2)
+        cos_theta3 = np.clip(cos_theta3, -1.0, 1.0)
+        theta3 = -np.arccos(cos_theta3)  # Elbow-up
+        
+        # Law of cosines for theta2
+        alpha = np.arctan2(z_proj, x_proj)
+        beta = np.arctan2(a2 * np.sin(abs(theta3)), a1 + a2 * np.cos(theta3))
+        theta2 = alpha - beta
+        
+        # Theta4 from geometry
+        theta4 = -theta2 - theta3
+
+    # Step 7: Fixed constraint
+    theta5 = -np.pi/2
+
+    print(f"Calculated angles: θ1={np.degrees(theta1):.1f}°, θ2={np.degrees(theta2):.1f}°, "
+          f"θ3={np.degrees(theta3):.1f}°, θ4={np.degrees(theta4):.1f}°, "
+          f"θ5={np.degrees(theta5):.1f}°, θ6={np.degrees(theta6):.1f}°")
+
+    # ==============================================================#
+    return lab_fk(theta1, theta2, theta3, theta4, theta5, theta6)
+
+
 
 
 
