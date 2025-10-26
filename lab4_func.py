@@ -170,11 +170,15 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     z_3end = z_cen + L10 + L8                       #59mm from gripper to aluminum plate (L10) and 82mm from Link 8
    
     x_3end = x_cen - (L7*np.cos(theta1)) + ((L6+0.027)*np.sin(theta1))
-    y_3end = y_cen - (L6+0.027)*np.cos(theta1) + (L7*np.sin(theta1))
+    y_3end = y_cen - (L6+0.027)*np.cos(theta1) - (L7*np.sin(theta1))
 
 
     #Solving for theta2, theta3, and theta4
-    
+    csquared = ((x_3end**2) + (y_3end**2)) + ((z_3end-L1)**2)
+    c = np.sqrt(csquared)
+
+    theta2 = (-np.arccos(((L5**2) - csquared - (L3**2)) / (-2*L3*c))) - np.arcsin((z_3end-L1) / c)
+    theta3 = PI - np.arccos(((L3**2) + (L5**2) - csquared) / (2*L3*L5))
 
 
     # x_shoulder = -0.120*np.sin(theta1) + 0.0*np.cos(theta1)  
@@ -195,8 +199,7 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     # # plug in to Law of cosines for elbow angle (theta3)
     # cos_theta3 = (hyp**2 - a1**2 - a2**2)/(2*a1*a2)
     # # Clamp to [-1,1] to avoid numerical errors
-    # cos_theta3 = np.clip(cos_theta3, -1.0, 1.0)
-    # theta3 = np.arccos(cos_theta3)
+    #theta3 = np.clip(theta3, -1.0, 1.0)
 
     # # Law of cosines for shoulder angle (theta2)
     # alpha = np.arctan2(z_length, x_length)
@@ -217,10 +220,7 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     # theta6 = 0.0
     print("theta computed: ", theta1, theta2, theta3, theta4, theta5, theta6)
     # ==============================================================#
-    return lab_fk(theta1, theta2, theta3, theta4, theta5, theta6)
-
-
-
+    return lab_fk(float(theta1), float(theta2), float(theta3), float(theta4), float(theta5), float(theta6))
 
 
 
