@@ -1,4 +1,3 @@
-#NOT FINISHED YET
 #!/usr/bin/env python
 import numpy as np
 from scipy.linalg import expm
@@ -167,17 +166,25 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
 
 
     #Solving for x_3end, y_3end, and z_3end
-    z_3end = z_cen + L10 + L8                       #59mm from gripper to aluminum plate (L10) and 82mm from Link 8
+    z_3end = z_cen + L10 + L8                           #59mm from gripper to aluminum plate (L10) and 82mm from Link 8
    
     x_3end = x_cen - (L7*np.cos(theta1)) + ((L6+0.027)*np.sin(theta1))
     y_3end = y_cen - (L6+0.027)*np.cos(theta1) - (L7*np.sin(theta1))
 
 
     #Solving for theta2, theta3, and theta4
-    csquared = ((x_3end**2) + (y_3end**2)) + ((z_3end-L1)**2)
-    c = np.sqrt(csquared)
+    hor_dist = ((x_3end**2) + (y_3end**2))              #horizontal distance squared from base to 3end
+    vert_dist = ((z_3end-L1)**2)                        #vertical distance squared from joint 2 to 3end
+    csquared = hor_dist + vert_dist                     #distanced squared from joint 2 to 3end
 
-    theta2 = (-np.arccos(((L5**2) - csquared - (L3**2)) / (-2*L3*c))) - np.arcsin((z_3end-L1) / c)
+    c = np.sqrt(csquared)                               #line from Joint 2 to 3end
+
+
+    hor_angle = -np.arccos(((L5**2) - csquared - (L3**2)) / (-2*L3*c))
+    vert_angle = np.arcsin((z_3end-L1) / c)
+    theta2 = hor_angle - vert_angle
+
+    #Law of Cosine
     theta3 = PI - np.arccos(((L3**2) + (L5**2) - csquared) / (2*L3*L5))
 
 
@@ -196,16 +203,12 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     # hyp  = np.sqrt(x_length**2 + z_length**2)  
 
 
-    # # plug in to Law of cosines for elbow angle (theta3)
-    # cos_theta3 = (hyp**2 - a1**2 - a2**2)/(2*a1*a2)
-    # # Clamp to [-1,1] to avoid numerical errors
+    #plug in to Law of cosines for elbow angle (theta3)
+    #cos_theta3 = (hyp**2 - a1**2 - a2**2)/(2*a1*a2)
+    #clamp to [-1,1] to avoid numerical errors
     #theta3 = np.clip(theta3, -1.0, 1.0)
 
-    # # Law of cosines for shoulder angle (theta2)
-    # alpha = np.arctan2(z_length, x_length)
-    # beta  = np.arctan2(a2*np.sin(theta3), a1 + a2*np.cos(theta3))
-    # theta2 = alpha - beta
-
+    #Law of cosines for shoulder angle (theta2)
 
 
     # Wrist pitch (theta4) so the end effector stays level
@@ -221,6 +224,9 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     print("theta computed: ", theta1, theta2, theta3, theta4, theta5, theta6)
     # ==============================================================#
     return lab_fk(float(theta1), float(theta2), float(theta3), float(theta4), float(theta5), float(theta6))
+
+
+
 
 
 
