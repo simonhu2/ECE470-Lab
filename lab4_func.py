@@ -75,8 +75,6 @@ def Get_MS():
 Function that calculates encoder numbers for each motor
 """
 def lab_fk(theta1, theta2, theta3, theta4, theta5, theta6):
-
-
     # Initialize the return_value
     return_value = [None, None, None, None, None, None]
 
@@ -142,7 +140,7 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
 
 
     #Solving for Theta1
-    theta1 = np.arctan2(y_cen, x_cen) - (np.arcsin((L2-L4+L6) / np.sqrt(x_cen**2+y_cen**2)))
+    theta1 = np.arctan2(y_cen, x_cen) - (np.arcsin((L2-L4+L6) / np.sqrt(x_cen**2+y_cen**2)))    #derive the angle from base origin to wrist center plus angle correction
 
 
     #Solving for Theta6
