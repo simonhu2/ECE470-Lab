@@ -9,6 +9,7 @@ import math
 Use 'expm' for matrix exponential.
 Angles are in radian, distance are in meters.
 """
+#Link angles for the UR3 robotic arm
 L1 = 0.152
 L2 = 0.120
 L3 = 0.244
@@ -21,14 +22,11 @@ L9 = 0.0535
 L10 = 0.059
 
 
-
-
 def Get_MS():
     # =================== Your code starts here ====================#
     # Fill in the correct values for a1~6 and q1~6, as well as the M matrix
     M = np.eye(4)
     S = np.zeros((6,6))
-
 
     q1 = np.array([-0.150, .150, 0.010])
     q2 = q1 + np.array([0, .120, .152])
@@ -69,13 +67,8 @@ def Get_MS():
     S[:,4] = np.hstack((w5, v5))
     S[:,5] = np.hstack((w6, v6))
 
-
-
-
     # ==============================================================#
     return M, S
-
-
 
 
 """
@@ -95,15 +88,10 @@ def lab_fk(theta1, theta2, theta3, theta4, theta5, theta6):
     theta = np.array([theta1,theta2,theta3,theta4,theta5,theta6])
     T = np.eye(4)
 
-
-   
-
-
     M, S = Get_MS()
     for i in range(6):
         omega = S[0:3, i]
         v = S[3:6, i]
-
 
         skew = np.array([
             [0, -omega[2], omega[1]],
@@ -111,14 +99,12 @@ def lab_fk(theta1, theta2, theta3, theta4, theta5, theta6):
             [-omega[1], omega[0], 0]
         ])
 
-
         S_matrix = np.zeros((4, 4))
         S_matrix[0:3, 0:3] = skew
         S_matrix[0:3, 3] = v
        
         exponentials = expm(S_matrix * theta[i])
         T = T @ exponentials
-
 
     T = T @ M
     print(str(T) + "\n")
@@ -144,14 +130,14 @@ Function that calculates an elbow up Inverse Kinematic solution for the UR3
 """
 def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     # =================== Your code starts here ====================#
-    yaw_radians = np.radians(yaw_WgripDegree)
-    xgrip = xWgrip + 0.15       #base offset
-    ygrip = yWgrip - 0.15      
+    yaw_radians = np.radians(yaw_WgripDegree)    #conver the degrees into radians for cosine, sine, and more
+    xgrip = xWgrip + 0.15      #base offset
+    ygrip = yWgrip - 0.15      #more offsets
     zgrip = zWgrip - 0.01  
 
 
-    x_cen = xgrip-L9*np.cos(yaw_radians)            #0.0535 from link 9
-    y_cen = ygrip-L9*np.sin(yaw_radians)
+    x_cen = xgrip-L9*np.cos(yaw_radians)                #0.0535m from link 9
+    y_cen = ygrip-L9*np.sin(yaw_radians)                
     z_cen = zgrip                                       #same height as stated in the constraint
 
 
@@ -168,7 +154,7 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     #Solving for x_3end, y_3end, and z_3end
     z_3end = z_cen + L10 + L8                           #59mm from gripper to aluminum plate (L10) and 82mm from Link 8
    
-    x_3end = x_cen - (L7*np.cos(theta1)) + ((L6+0.027)*np.sin(theta1))
+    x_3end = x_cen - (L7*np.cos(theta1)) + ((L6+0.027)*np.sin(theta1))    #moving backwards and perpendicular along the gripper x orientation
     y_3end = y_cen - (L6+0.027)*np.cos(theta1) - (L7*np.sin(theta1))
 
 
@@ -180,12 +166,12 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     c = np.sqrt(csquared)                               #line from Joint 2 to 3end
 
 
-    hor_angle = -np.arccos(((L5**2) - csquared - (L3**2)) / (-2*L3*c))
-    vert_angle = np.arcsin((z_3end-L1) / c)
-    theta2 = hor_angle - vert_angle
+    hor_angle = -np.arccos(((L5**2) - csquared - (L3**2)) / (-2*L3*c))     #use Law of Cosines to find the angle at the shoulder in the triangle formed by L3, L5, and c
+    vert_angle = np.arcsin((z_3end-L1) / c)                                #use arcsin to find the angle of elevation from the shoulder point to the virtual point
+    theta2 = hor_angle - vert_angle                    #derive the actual shoulder joint angle
 
     #Law of Cosine
-    theta3 = PI - np.arccos(((L3**2) + (L5**2) - csquared) / (2*L3*L5))
+    theta3 = PI - np.arccos(((L3**2) + (L5**2) - csquared) / (2*L3*L5))    #use Law of Cosines to find the internal angle at the elbow between L3 and L5
 
 
     # x_shoulder = -0.120*np.sin(theta1) + 0.0*np.cos(theta1)  
@@ -209,7 +195,6 @@ def lab_invk(xWgrip, yWgrip, zWgrip, yaw_WgripDegree):
     #theta3 = np.clip(theta3, -1.0, 1.0)
 
     #Law of cosines for shoulder angle (theta2)
-
 
     # Wrist pitch (theta4) so the end effector stays level
     theta4 = -(theta2 + theta3)
