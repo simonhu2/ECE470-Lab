@@ -6,24 +6,24 @@ import numpy as np
 # ========================= Student's code starts here =========================
 
 # Params for camera calibration
-theta = 0.0
+theta = 0.176
 beta = 752.21      #10m apart
-tx = 0.0
-ty = 0.0
+tx = 0.2571
+ty = 0.062
 
 # Function that converts image coord to world coord
 def IMG2W(col, row):
     pass
-    # O_r = 240       #from Figure B.2
-    # O_c = 320
+    O_r = 240       #from Figure B.2
+    O_c = 320
 
-    # x_c = (col - O_c) / beta
-    # y_c = (O_r - row) / beta        #since y increases when it goes down, we have to flip y
+    x_c = (col - O_c) / beta
+    y_c = (O_r - row) / beta        #since y increases when it goes down, we have to flip y
 
-    # x_w = x_c * np.cos(theta) - y_c * np.sin(theta) + tx
-    # y_w = x_c * np.sin(theta) + y_c * np.cos(theta) + ty
+    x_w = x_c * np.cos(theta) - y_c * np.sin(theta) + tx
+    y_w = x_c * np.sin(theta) + y_c * np.cos(theta) + ty
 
-    # return (x_w, y_w)
+    return (x_w, y_w)
 
 
 # ========================= Student's code ends here ===========================
@@ -90,6 +90,19 @@ def blob_search(image_raw, color):
 
     # beta = pix_dist/0.1         #10cm from Appendix B
     # print(f"{beta}")
+
+    # x_c1 = (circle1x - 320)/beta
+    # y_c1 = (240 - circle1y)/beta
+    # x_c2 = (circle2x - 320)/beta
+    # y_c2 = (240 - circle2y)/beta
+
+    # delta_x = x_c2 - x_c1
+    # delta_y = y_c2 - y_c1
+    # theta = np.arctan2(delta_x, delta_y)
+    
+    # tx = -(x_c1*np.cos(theta) - y_c1*np.sin(theta))
+    # ty = -(x_c1*np.sin(theta) + y_c1*np.cos(theta))
+    # print(f"ty = {ty}")
 
     # Draw the keypoints on the detected block
     im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), (0, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
