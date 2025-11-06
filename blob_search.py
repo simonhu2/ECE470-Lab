@@ -11,6 +11,7 @@ beta = 752.21      #10m apart
 tx = 0.2571
 ty = 0.062
 
+
 # Function that converts image coord to world coord
 def IMG2W(col, row):
     pass
@@ -29,6 +30,7 @@ def IMG2W(col, row):
 # ========================= Student's code ends here ===========================
 
 def blob_search(image_raw, color):
+    combined_keypoints = []
 
     # Setup SimpleBlobDetector parameters.
     params = cv2.SimpleBlobDetector_Params()
@@ -44,9 +46,9 @@ def blob_search(image_raw, color):
     params.maxArea = 1000
 
     # Filter by Circularity
-    params.filterByCircularity = True
-    params.minCircularity = 0.70
-    params.maxCircularity = 0.97
+    params.filterByCircularity = False
+    #params.minCircularity = 0.70
+    #params.maxCircularity = 0.97
 
     # Filter by Inerita
     params.filterByInertia = False
@@ -64,17 +66,28 @@ def blob_search(image_raw, color):
 
     # ========================= Student's code starts here =========================
 
-    lower = (5,100,100)     # orange lower
-    upper = (15,255,255)   # orange upper
+    #color_range = { "orange": ((5,100,100),(15,255,255)), "green": ((40,50,50),(80,255,255)),"blue": ((100,150,50),(140,255,255))}
+    color_range = { "orange": ((5,100,150),(15,255,255)), "green": ((30,50,100),(80,255,255)),"blue": ((50,150,20),(130,255,255))}
+
+    
+    for color, (lower,upper) in color_range.items():
+            mask = cv2.inRange(hsv_image,lower,upper)
+            #mask = cv2.medianBlur(mask,5)
+            keypoints = detector.detect(mask)
+            combined_keypoints += keypoints
+
+    '''lower_orange = (5,100,100)     # orange lower
+    upper_orange = (15,255,255)   # orange upper
 
     # Define a mask using the lower and upper bounds of the target color
-    mask_image = cv2.inRange(hsv_image, lower, upper)
-
+    mask_orange = cv2.inRange(hsv_image, lower_orange, upper_orange)'''
 
 
     # ========================= Student's code ends here ===========================
 
-    keypoints = detector.detect(mask_image)
+    #keypoints = detector.detect(mask_orange)
+
+
 
     # Find blob centers in the image coordinates
     blob_image_center = []
@@ -105,8 +118,8 @@ def blob_search(image_raw, color):
     # print(f"ty = {ty}")
 
     # Draw the keypoints on the detected block
-    im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), (0, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
+    im_with_keypoints = cv2.drawKeypoints(image_raw, combined_keypoints, np.array([]), (0, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    
     # ========================= Student's code ends here ===========================
 
     xw_yw = []
@@ -122,7 +135,7 @@ def blob_search(image_raw, color):
     cv2.namedWindow("Camera View")
     cv2.imshow("Camera View", image_raw)
     cv2.namedWindow("Mask View")
-    cv2.imshow("Mask View", mask_image)
+    cv2.imshow("Mask View", mask)
     cv2.namedWindow("Keypoint View")
     cv2.imshow("Keypoint View", im_with_keypoints)
 
