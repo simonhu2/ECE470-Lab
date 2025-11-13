@@ -244,7 +244,7 @@ class ImageConverter:
         # the image frame to the global world frame.
 
         xw_yw_G = blob_search(cv_image, "green")
-        xw_yw_Y = blob_search(cv_image, "yellow")
+        xw_yw_Y = blob_search(cv_image, "blue")
 
 
 """
@@ -290,7 +290,6 @@ def main():
     Hints: use the found xw_yw_G, xw_yw_Y to move the blocks correspondingly. You will
     need to call move_block(pub_command, loop_rate, start_xw_yw_zw, target_xw_yw_zw, vel, accel)
     """
-
 
 
     # ========================= Student's code ends here ===========================
