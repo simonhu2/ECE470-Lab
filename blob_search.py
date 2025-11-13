@@ -42,7 +42,7 @@ def blob_search(image_raw, color):
 
     # Filter by Area.
     params.filterByArea = True
-    params.minArea = 50
+    params.minArea = 100
     params.maxArea = 1000
 
     # Filter by Circularity
@@ -80,31 +80,54 @@ def blob_search(image_raw, color):
     if color == "orange":
         lower = (5, 100, 100)
         upper = (15, 255, 255)
-        color_bgr = (0, 165, 255)
+        color_bgr = (0, 0, 255)
+        mask_image = cv2.inRange(hsv_image, lower, upper)
+
+        kernel = np.ones((7, 7), np.uint8)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
     elif color == "green":
         lower = (40, 50, 50)
         upper = (90, 255, 255)
-        color_bgr = (0, 255, 0)
+        color_bgr = (0, 0, 255)
+        mask_image = cv2.inRange(hsv_image, lower, upper)
+
+        kernel = np.ones((7, 7), np.uint8)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
     elif color == "blue":
         lower = (100, 50, 50)
         upper = (130, 255, 255)
-        color_bgr = (255, 0, 0)
+        color_bgr = (0, 0, 255)
+        mask_image = cv2.inRange(hsv_image, lower, upper)
+
+        kernel = np.ones((7, 7), np.uint8)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
     else:
         lower = (5, 100, 100)
         upper = (15, 255, 255)
-        color_bgr = (0, 165, 255)
+        color_bgr = (0, 0, 255)
+        mask_image = cv2.inRange(hsv_image, lower, upper)
 
-    mask_image = cv2.inRange(hsv_image, lower, upper)
-    kernel = np.ones((5, 5), np.uint8)
-    mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
+        kernel = np.ones((7, 7), np.uint8)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
+        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
 
-    mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
 
-    '''lower_orange = (5,100,100)     # orange lower
-    upper_orange = (15,255,255)   # orange upper
+        
 
-    # Define a mask using the lower and upper bounds of the target color
-    mask_orange = cv2.inRange(hsv_image, lower_orange, upper_orange)'''
+    # mask_image = cv2.inRange(hsv_image, lower, upper)
+    # kernel = np.ones((7, 7), np.uint8)
+    # mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
+
+    # mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
+
+    # '''lower_orange = (5,100,100)     # orange lower
+    # upper_orange = (15,255,255)   # orange upper
+
+    # # Define a mask using the lower and upper bounds of the target color
+    # mask_orange = cv2.inRange(hsv_image, lower_orange, upper_orange)'''
 
 
     # ========================= Student's code ends here ===========================
@@ -154,10 +177,12 @@ def blob_search(image_raw, color):
 
     for color_name, (lower, upper) in color_ranges.items():
         color_mask = cv2.inRange(hsv_image, lower, upper)
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = np.ones((7, 7), np.uint8)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
         color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
         combined_mask = cv2.bitwise_or(combined_mask, color_mask)
+
+        
     
     # ========================= Student's code ends here ===========================
 
