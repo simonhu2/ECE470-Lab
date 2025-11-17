@@ -16,12 +16,14 @@ from blob_search import *
 # Position for UR3 not blocking the camera
 go_away = [270*PI/180.0, -90*PI/180.0, 90*PI/180.0, -90*PI/180.0, -90*PI/180.0, 135*PI/180.0]
 
-# Store world coordinates of green and yellow blocks
+# Store world coordinates of green and blue blocks
 xw_yw_G = []
 xw_yw_Y = []
 
 # Any other global variable you want to define
 # Hints: where to put the blocks?
+
+
 
 
 # ========================= Student's code ends here ===========================
@@ -200,6 +202,71 @@ def move_block(pub_cmd, loop_rate, start_xw_yw_zw, target_xw_yw_zw, vel, accel):
 
     error = 0
 
+    # Define safe height for moving
+    safe_height = 0.05  # meters above the block
+    
+    # Step 1: Move to safe height above start position
+    start_above = [start_xw_yw_zw[0], start_xw_yw_zw[1], start_xw_yw_zw[2] + safe_height]
+    start_angles = lab_invk(start_above[0], start_above[1], start_above[2], 0)
+    if start_angles is None:
+        rospy.logerr("No IK solution for start above position")
+        return 1
+    error = move_arm(pub_cmd, loop_rate, start_angles, vel, accel)
+    if error != 0:
+        return error
+    
+    # Step 2: Move down to pick up position
+    start_angles = lab_invk(start_xw_yw_zw[0], start_xw_yw_zw[1], start_xw_yw_zw[2], 0)
+    if start_angles is None:
+        rospy.logerr("No IK solution for start position")
+        return 1
+    error = move_arm(pub_cmd, loop_rate, start_angles, vel/2, accel/2)  # Slower for precision
+    if error != 0:
+        return error
+    
+    # Step 3: Activate suction
+    gripper(pub_cmd, loop_rate, suction_on)
+    time.sleep(1.0)  # Wait for suction to engage
+    
+    # Check if block was picked up
+    if digital_in_0 == 0:
+        rospy.logerr("Block pickup failed - no suction detected")
+        gripper(pub_cmd, loop_rate, suction_off)
+        return 2
+    
+    # Step 4: Lift block to safe height
+    error = move_arm(pub_cmd, loop_rate, start_angles, vel, accel)
+    if error != 0:
+        return error
+    
+    # Step 5: Move to safe height above target
+    target_above = [target_xw_yw_zw[0], target_xw_yw_zw[1], target_xw_yw_zw[2] + safe_height]
+    target_angles = lab_invk(target_above[0], target_above[1], target_above[2], 0)
+    if target_angles is None:
+        rospy.logerr("No IK solution for target above position")
+        return 1
+    error = move_arm(pub_cmd, loop_rate, target_angles, vel, accel)
+    if error != 0:
+        return error
+    
+    # Step 6: Move down to place position
+    target_angles = lab_invk(target_xw_yw_zw[0], target_xw_yw_zw[1], target_xw_yw_zw[2], 0)
+    if target_angles is None:
+        rospy.logerr("No IK solution for target position")
+        return 1
+    error = move_arm(pub_cmd, loop_rate, target_angles, vel/2, accel/2)
+    if error != 0:
+        return error
+    
+    # Step 7: Release suction
+    gripper(pub_cmd, loop_rate, suction_off)
+    time.sleep(1.0)
+    
+    # Step 8: Move back to safe height
+    error = move_arm(pub_cmd, loop_rate, target_angles, vel, accel)
+    if error != 0:
+        return error
+
     # ========================= Student's code ends here ===========================
 
     return error
@@ -222,7 +289,7 @@ class ImageConverter:
     def image_callback(self, data):
 
         global xw_yw_G # store found green blocks in this list
-        global xw_yw_Y # store found yellow blocks in this list
+        global xw_yw_Y # store found blue blocks in this list
 
         try:
           # Convert ROS image to OpenCV image
@@ -234,7 +301,7 @@ class ImageConverter:
         cv2.line(cv_image, (0,50), (640,50), (0,0,0), 5)
 
         # You will need to call blob_search() function to find centers of green blocks
-        # and yellow blocks, and store the centers in xw_yw_G & xw_yw_Y respectively.
+        # and blue blocks, and store the centers in xw_yw_G & xw_yw_Y respectively.
 
         # If no blocks are found for a particular color, you can return an empty list,
         # to xw_yw_G or xw_yw_Y.
@@ -291,6 +358,40 @@ def main():
     need to call move_block(pub_command, loop_rate, start_xw_yw_zw, target_xw_yw_zw, vel, accel)
     """
 
+    green_goals = [
+        [0.3, 0.2, 0.0],  # Goal 1 for green blocks
+        [0.3, 0.3, 0.0]   # Goal 2 for green blocks
+    ]
+    
+    blue_goals = [
+        [0.4, 0.2, 0.0],  # Goal 1 for blue blocks  
+        [0.4, 0.3, 0.0]   # Goal 2 for blue blocks
+    ]
+    
+    # Save initial block positions before arm moves obscure the view
+    saved_green_blocks = copy.deepcopy(xw_yw_G)
+    saved_blue_blocks = copy.deepcopy(xw_yw_Y)
+    
+    print(f"Found {len(saved_green_blocks)} green blocks and {len(saved_blue_blocks)} blue blocks")
+    
+    # Move green blocks
+    for i, block_pos in enumerate(saved_green_blocks):
+        if i < len(green_goals):
+            print(f"Moving green block {i+1} from {block_pos} to {green_goals[i]}")
+            # Add z-coordinate (blocks are on table, so z=0)
+            start_pos = [block_pos[0], block_pos[1], 0.0]
+            error = move_block(pub_command, loop_rate, start_pos, green_goals[i], vel, accel)
+            if error != 0:
+                rospy.logerr(f"Failed to move green block {i+1}, error code: {error}")
+    
+    # Move blue blocks  
+    for i, block_pos in enumerate(saved_blue_blocks):
+        if i < len(blue_goals):
+            print(f"Moving blue block {i+1} from {block_pos} to {blue_goals[i]}")
+            start_pos = [block_pos[0], block_pos[1], 0.0]
+            error = move_block(pub_command, loop_rate, start_pos, blue_goals[i], vel, accel)
+            if error != 0:
+                rospy.logerr(f"Failed to move blue block {i+1}, error code: {error}")
 
     # ========================= Student's code ends here ===========================
 
@@ -306,3 +407,4 @@ if __name__ == '__main__':
     # When Ctrl+C is executed, it catches the exception
     except rospy.ROSInterruptException:
         pass
+
