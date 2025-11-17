@@ -357,8 +357,20 @@ def main():
         return
 
     # Convert the detected centroids into full (x, y, z) coordinates
-    start_green = [ xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z ]
-    start_yellow = [ xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z ]
+try:
+    start_green  = [xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z]
+    start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
+except IndexError:
+    rospy.logwarn("Detection lost for a moment — waiting again.")
+    # re-enter waiting loop
+    while True:
+        if len(xw_yw_G) > 0 and len(xw_yw_Y) > 0:
+            break
+        time.sleep(0.2)
+    # try again
+    start_green  = [xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z]
+    start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
+
 
 
     # Define drop-off targets
