@@ -11,10 +11,12 @@ beta = 752.21      #10m apart
 tx = 0.2571
 ty = 0.062
 
+# Global variables to accumulate keypoints across all colors
+global_all_keypoints = []
+global_all_colors = []
 
 # Function that converts image coord to world coord
 def IMG2W(col, row):
-    pass
     O_r = 240       #from Figure B.2
     O_c = 320
 
@@ -26,12 +28,9 @@ def IMG2W(col, row):
 
     return (x_w, y_w)
 
-
 # ========================= Student's code ends here ===========================
 
 def blob_search(image_raw, color):
-    combined_keypoints = []
-
     # Setup SimpleBlobDetector parameters.
     params = cv2.SimpleBlobDetector_Params()
 
@@ -47,10 +46,8 @@ def blob_search(image_raw, color):
 
     # Filter by Circularity
     params.filterByCircularity = False
-   # params.minCircularity = 0.70
-    #params.maxCircularity = 0.97
 
-    # Filter by Inerita
+    # Filter by Inertia
     params.filterByInertia = False
 
     # Filter by Convexity
@@ -66,115 +63,47 @@ def blob_search(image_raw, color):
 
     # ========================= Student's code starts here =========================
 
-    #color_range = { "orange": ((5,100,100),(15,255,255)), "green": ((40,50,50),(80,255,255)),"blue": ((100,150,50),(140,255,255))}
-    #color_range = { "orange": ((5,100,150),(15,255,255)), "green": ((30,50,85),(80,255,255)),"blue": ((50,150,20),(130,255,255))}
-    # color_range = { "orange": ((5,100,100),(15,255,255)), "green": ((40,50,50),(90,255,255)),"blue": ((100,50,50),(130,255,255))}
-
-    
-    # for color, (lower,upper) in color_range.items():
-    #         mask = cv2.inRange(hsv_image,lower,upper)
-    #         #mask = cv2.medianBlur(mask,5)
-    #         keypoints = detector.detect(mask)
-    #         combined_keypoints += keypoints
-
-    all_keypoints = []
-    all_colors_bgr = []
-
+    # Define colors and create mask
     if color == "orange":
         lower = (5, 100, 100)
         upper = (15, 255, 255)
-        color_bgr = (0, 0, 255)
+        color_bgr = (0, 0, 255)  # Red
         mask_image = cv2.inRange(hsv_image, lower, upper)
-
-        kernel = np.ones((7, 7), np.uint8)
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
     elif color == "green":
         lower = (40, 50, 50)
         upper = (90, 255, 255)
-        color_bgr = (0, 0, 255)
+        color_bgr = (0, 255, 0)  # Green
         mask_image = cv2.inRange(hsv_image, lower, upper)
-
-        kernel = np.ones((7, 7), np.uint8)
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
     elif color == "blue":
         lower = (100, 50, 50)
         upper = (130, 255, 255)
-        color_bgr = (0, 0, 255)
+        color_bgr = (255, 0, 0)  # Blue
         mask_image = cv2.inRange(hsv_image, lower, upper)
-
-        kernel = np.ones((7, 7), np.uint8)
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
     else:
         lower = (5, 100, 100)
         upper = (15, 255, 255)
         color_bgr = (0, 0, 255)
         mask_image = cv2.inRange(hsv_image, lower, upper)
 
-        kernel = np.ones((7, 7), np.uint8)
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
-
-    all_keypoints.extend(keypoints)
-    all_colors_bgr.extend([color_bgr] * len(keypoints))
-
-    image_keypoints = image_raw.copy()
-    for kp, col in zip(all_keypoints, all_colors_bgr):
-        image_keypoints = cv2.drawKeypoints(image_keypoints, [kp], np.array([]), col, cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
-        
-
-    # mask_image = cv2.inRange(hsv_image, lower, upper)
-    # kernel = np.ones((7, 7), np.uint8)
-    # mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
-
-    # mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
-
-    # '''lower_orange = (5,100,100)     # orange lower
-    # upper_orange = (15,255,255)   # orange upper
-
-    # # Define a mask using the lower and upper bounds of the target color
-    # mask_orange = cv2.inRange(hsv_image, lower_orange, upper_orange)'''
-
-
     # ========================= Student's code ends here ===========================
 
+    # Detect keypoints for current color
     keypoints = detector.detect(mask_image)
 
-
-
-    # Find blob centers in the image coordinates
-    blob_image_center = []
-    num_blobs = len(keypoints)
-    for i in range(num_blobs):
-        blob_image_center.append((keypoints[i].pt[0],keypoints[i].pt[1]))
-
     # ========================= Student's code starts here =========================
-    # circle1x, circle1y = keypoints[0].pt
-    # circle2x, circle2y = keypoints[1].pt
 
-    # pix_dist = np.sqrt((circle2x - circle1x)**2 + (circle2y - circle1y)**2)
+    # Add current color's keypoints to global lists
+    for kp in keypoints:
+        global_all_keypoints.append(kp)
+        global_all_colors.append(color_bgr)
 
-    # beta = pix_dist/0.1         #10cm from Appendix B
-    # print(f"{beta}")
+    # Draw ALL accumulated keypoints from all colors
+    im_with_keypoints = image_raw.copy()
+    for kp, col in zip(global_all_keypoints, global_all_colors):
+        im_with_keypoints = cv2.drawKeypoints(im_with_keypoints, [kp], np.array([]), col, cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
-    # x_c1 = (circle1x - 320)/beta
-    # y_c1 = (240 - circle1y)/beta
-    # x_c2 = (circle2x - 320)/beta
-    # y_c2 = (240 - circle2y)/beta
-
-    # delta_x = x_c2 - x_c1
-    # delta_y = y_c2 - y_c1
-    # theta = np.arctan2(delta_x, delta_y)
-    
-    # tx = -(x_c1*np.cos(theta) - y_c1*np.sin(theta))
-    # ty = -(x_c1*np.sin(theta) + y_c1*np.cos(theta))
-    # print(f"ty = {ty}")
-
-    # Draw the keypoints on the detected block
-    im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), color_bgr, cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-
+    # Create combined mask for display
     combined_mask = np.zeros_like(mask_image)
-
     color_ranges = {
         "orange": ((5,100,100),(15,255,255)),
         "green": ((40,50,50),(90,255,255)),
@@ -183,14 +112,15 @@ def blob_search(image_raw, color):
 
     for color_name, (lower, upper) in color_ranges.items():
         color_mask = cv2.inRange(hsv_image, lower, upper)
-        kernel = np.ones((7, 7), np.uint8)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
         combined_mask = cv2.bitwise_or(combined_mask, color_mask)
 
-        
-    
     # ========================= Student's code ends here ===========================
+
+    # Find blob centers in the image coordinates
+    blob_image_center = []
+    num_blobs = len(keypoints)
+    for i in range(num_blobs):
+        blob_image_center.append((keypoints[i].pt[0],keypoints[i].pt[1]))
 
     xw_yw = []
 
@@ -200,7 +130,6 @@ def blob_search(image_raw, color):
         # Convert image coordinates to global world coordinate using IM2W() function
         for i in range(num_blobs):
             xw_yw.append(IMG2W(blob_image_center[i][0], blob_image_center[i][1]))
-
 
     cv2.namedWindow("Camera View")
     cv2.imshow("Camera View", image_raw)
