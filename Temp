@@ -11,12 +11,10 @@ beta = 752.21      #10m apart
 tx = 0.2571
 ty = 0.062
 
-# Global variables for accumulating keypoints across colors
-global_all_keypoints = []
-global_all_colors = []
 
 # Function that converts image coord to world coord
 def IMG2W(col, row):
+    pass
     O_r = 240       #from Figure B.2
     O_c = 320
 
@@ -28,13 +26,13 @@ def IMG2W(col, row):
 
     return (x_w, y_w)
 
+
 # ========================= Student's code ends here ===========================
 
 def blob_search(image_raw, color):
-    # Clear previous keypoints at the start of each frame
-    if color == "green":  # Clear when processing the first color
-        global_all_keypoints.clear()
-        global_all_colors.clear()
+    # CHANGED: Initialize empty lists for all keypoints and world coordinates
+    all_keypoints = []
+    all_xw_yw = []
 
     # Setup SimpleBlobDetector parameters.
     params = cv2.SimpleBlobDetector_Params()
@@ -44,15 +42,17 @@ def blob_search(image_raw, color):
     # Filter by Color
     params.filterByColor = False
 
-    # Filter by Area - ADJUSTED FOR BETTER DETECTION
+    # Filter by Area.
     params.filterByArea = True
-    params.minArea = 150      # Increased to avoid small noise
-    params.maxArea = 5000     # Increased for larger blocks
+    params.minArea = 100
+    params.maxArea = 1000
 
     # Filter by Circularity
     params.filterByCircularity = False
+   # params.minCircularity = 0.70
+    #params.maxCircularity = 0.97
 
-    # Filter by Inertia
+    # Filter by Inerita
     params.filterByInertia = False
 
     # Filter by Convexity
@@ -68,108 +68,77 @@ def blob_search(image_raw, color):
 
     # ========================= Student's code starts here =========================
 
-    # Define colors with proper BGR values and improved blue range
-    if color == "orange":
-        lower = (5, 100, 100)
-        upper = (15, 255, 255)
-        color_bgr = (0, 165, 255)  # Orange
-        mask_image = cv2.inRange(hsv_image, lower, upper)
-        
-    elif color == "green":
-        lower = (40, 50, 50)
-        upper = (90, 255, 255)
-        color_bgr = (0, 255, 0)    # Green
-        mask_image = cv2.inRange(hsv_image, lower, upper)
-        
-    elif color == "blue":
-        # WIDER BLUE RANGE to catch all blue blocks
-        lower = (90, 50, 50)       # Lower hue for more blue shades
-        upper = (140, 255, 255)    # Higher hue for more blue shades
-        color_bgr = (255, 0, 0)    # Blue
-        mask_image = cv2.inRange(hsv_image, lower, upper)
-        
-        # MORPHOLOGICAL OPERATIONS FOR BLUE ONLY - to connect incomplete blobs
-        kernel = np.ones((9, 9), np.uint8)  # Larger kernel for blue
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)  # Fill gaps
-        mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)   # Remove noise
-        
-    else:
-        lower = (5, 100, 100)
-        upper = (15, 255, 255)
-        color_bgr = (0, 165, 255)
-        mask_image = cv2.inRange(hsv_image, lower, upper)
-
-    # ========================= Student's code ends here ===========================
-
-    # Detect keypoints
-    keypoints = detector.detect(mask_image)
-
-    # ========================= Student's code starts here =========================
-
-    # FILTER KEYPOINTS - Only add if they correspond to actual mask regions
-    filtered_keypoints = []
-    for kp in keypoints:
-        x, y = int(kp.pt[0]), int(kp.pt[1])
-        # Check if the keypoint is in a white region of the mask
-        if 0 <= y < mask_image.shape[0] and 0 <= x < mask_image.shape[1]:
-            if mask_image[y, x] > 0:  # Only add if it's actually in a masked area
-                filtered_keypoints.append(kp)
-    
-    # Add filtered keypoints to global lists
-    for kp in filtered_keypoints:
-        global_all_keypoints.append(kp)
-        global_all_colors.append(color_bgr)
-
-    # Create combined mask for display (shows all colors)
-    combined_mask = np.zeros_like(mask_image)
-    
-    # Define color ranges for combined mask
+    # CHANGED: Define color ranges for ALL colors we want to detect
     color_ranges = {
         "orange": ((5, 100, 100), (15, 255, 255)),
         "green": ((40, 50, 50), (90, 255, 255)),
-        "blue": ((90, 50, 50), (140, 255, 255))  # Wider blue range for mask view too
+        "blue": ((100, 50, 50), (130, 255, 255))
+    }
+    
+    # CHANGED: Define BGR colors for drawing keypoints (for visual distinction)
+    color_bgr_map = {
+        "orange": (0, 165, 255),  # Orange in BGR
+        "green": (0, 255, 0),     # Green in BGR  
+        "blue": (255, 0, 0)       # Blue in BGR
     }
 
+    # CHANGED: Initialize the image we'll draw all keypoints on
+    im_with_all_keypoints = image_raw.copy()
+    
+    # CHANGED: Process EACH color to detect blobs and accumulate keypoints
+    for color_name, (lower, upper) in color_ranges.items():
+        # Create mask for this color
+        mask = cv2.inRange(hsv_image, lower, upper)
+        
+        # Apply morphological operations to clean up the mask
+        kernel = np.ones((7, 7), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        
+        # Detect keypoints for this color
+        keypoints = detector.detect(mask)
+        
+        # CHANGED: Draw keypoints for this color with its specific color
+        if len(keypoints) > 0:
+            im_with_all_keypoints = cv2.drawKeypoints(
+                im_with_all_keypoints, 
+                keypoints, 
+                np.array([]), 
+                color_bgr_map[color_name], 
+                cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
+            )
+            
+            # CHANGED: Convert to world coordinates and accumulate
+            for kp in keypoints:
+                x_w, y_w = IMG2W(kp.pt[0], kp.pt[1])
+                all_xw_yw.append((x_w, y_w))
+                all_keypoints.append(kp)
+
+    # CHANGED: Create combined mask for display (same as your original working code)
+    combined_mask = np.zeros_like(mask)
     for color_name, (lower, upper) in color_ranges.items():
         color_mask = cv2.inRange(hsv_image, lower, upper)
-        
-        # Apply morphological operations only for blue in combined mask
-        if color_name == "blue":
-            kernel = np.ones((9, 9), np.uint8)
-            color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
-            color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
-            
+        kernel = np.ones((7, 7), np.uint8)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
         combined_mask = cv2.bitwise_or(combined_mask, color_mask)
-
-    # Draw ALL accumulated keypoints from all colors
-    im_with_keypoints = image_raw.copy()
-    for kp, col in zip(global_all_keypoints, global_all_colors):
-        im_with_keypoints = cv2.drawKeypoints(im_with_keypoints, [kp], np.array([]), col, cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
 
     # ========================= Student's code ends here ===========================
 
-    # Find blob centers in the image coordinates (using filtered keypoints)
-    blob_image_center = []
-    num_blobs = len(filtered_keypoints)
-    for i in range(num_blobs):
-        blob_image_center.append((filtered_keypoints[i].pt[0], filtered_keypoints[i].pt[1]))
-
-    xw_yw = []
-
-    if(num_blobs == 0):
-        print(f"No {color} block found!")
+    # CHANGED: Use the accumulated keypoints and world coordinates
+    if len(all_keypoints) == 0:
+        print("No blocks found!")
     else:
-        # Convert image coordinates to global world coordinate using IM2W() function
-        for i in range(num_blobs):
-            xw_yw.append(IMG2W(blob_image_center[i][0], blob_image_center[i][1]))
+        print(f"Found {len(all_keypoints)} blocks total")
 
     cv2.namedWindow("Camera View")
     cv2.imshow("Camera View", image_raw)
     cv2.namedWindow("Mask View")
     cv2.imshow("Mask View", combined_mask)
     cv2.namedWindow("Keypoint View")
-    cv2.imshow("Keypoint View", im_with_keypoints)
+    cv2.imshow("Keypoint View", im_with_all_keypoints)
 
     cv2.waitKey(2)
 
-    return xw_yw
+    # CHANGED: Return ALL world coordinates, not just for one color
+    return all_xw_yw
