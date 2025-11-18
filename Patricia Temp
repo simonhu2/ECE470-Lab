@@ -195,11 +195,11 @@ go_away = [270*PI/180.0, -90*PI/180.0, 90*PI/180.0,
 xw_yw_G = []
 xw_yw_Y = []
 
-# You may define drop-off target locations:
+# Drop-off target locations
 DROP_GREEN  = [0.30, -0.15, 0.02]
 DROP_YELLOW = [0.30,  0.15, 0.02]
 
-# Any other global variable you want to define, such as pick height, safe height
+# Pick and safe heights
 BLOCK_Z     = 0.02
 SAFE_Z      = 0.15
 
@@ -369,6 +369,8 @@ def move_block(pub_cmd, loop_rate, start_xw_yw_zw, target_xw_yw_zw, vel, accel):
     target_xw_yw_zw: (x, y, z) of block drop-off in world coordinates
     """
 
+    # ========================= Student's code starts here =========================
+
     global suction_on, suction_off, digital_in_0
 
     error = 0
@@ -436,6 +438,8 @@ def move_block(pub_cmd, loop_rate, start_xw_yw_zw, target_xw_yw_zw, vel, accel):
     # 8. Lift up again
     error = move_arm(pub_cmd, loop_rate, q_above_place, vel, accel)
     if error != 0: return error
+
+    # ========================= Student's code ends here ===========================
 
     return error
 
@@ -520,65 +524,38 @@ def main():
     ic = ImageConverter(SPIN_RATE)
     time.sleep(5)
 
-# ========================= Student's code starts here =========================
-
-    # Z coordinate values (you may define these earlier too)
-    PICK_Z  = 0.02     # height of the block top
+    # ========================= Student's code starts here =========================
+    
+    PICK_Z  = 0.02
     PLACE_Z = 0.02
-
-    if len(xw_yw_G) == 0 or len(xw_yw_Y) == 0:
-         #rospy.logerr("ERROR: One or both blocks not detected. Cannot continue.")
-         rospy.loginfo("Waiting for update..")
-         time.sleep(0.2)
-         #return
-
-    # Convert the detected centroids into full (x, y, z) coordinates
-    try:
-        start_green  = [xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z]
-        start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
-    except IndexError:
-        rospy.logwarn("Detection lost for a moment — waiting again.")
-        # re-enter waiting loop
-        while True:
-            if len(xw_yw_G) > 0 and len(xw_yw_Y) > 0:
-                rospy.sleep(0.1)
-                break
-            time.sleep(0.2)
-        # try again
-        start_green  = [xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z]
-        start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
-
-
-    # Define drop-off targets
-    DROP_GREEN  = [0.30, -0.15, PLACE_Z]
-    DROP_YELLOW = [0.30,  0.15, PLACE_Z]
-
-    # Move blocks
-    move_block(pub_command, loop_rate, start_green,  DROP_GREEN,  vel, accel)
+    
+    # ------------- WAIT FOR GREEN -------------
+    rospy.loginfo("Waiting for GREEN block...")
+    while len(xw_yw_G) == 0:
+        time.sleep(0.1)
+    
+    # Green pick location
+    start_green = [xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z]
+    
+    # Move GREEN first
+    move_block(pub_command, loop_rate, start_green, DROP_GREEN, vel, accel)
+    
+    # ------------- RE-DETECT YELLOW AFTER GREEN MOVED -------------
+    rospy.loginfo("Re-detecting YELLOW block...")
+    time.sleep(1.0)  # give camera time to refresh
+    
+    while len(xw_yw_Y) == 0:
+        rospy.loginfo("Waiting for YELLOW block...")
+        time.sleep(0.1)
+    
+    # New yellow location
+    start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
+    
+    # Move YELLOW
     move_block(pub_command, loop_rate, start_yellow, DROP_YELLOW, vel, accel)
+    
+    # ========================= Student's code ends here ===========================
 
-# Move GREEN first
-move_block(pub_command, loop_rate, start_green, DROP_GREEN, vel, accel)
-
-# ===== Re-detect blocks before moving YELLOW =====
-rospy.loginfo("Re-detecting yellow block after moving green...")
-
-# Wait a little for camera update
-time.sleep(1.0)
-
-# Ensure yellow exists now
-while len(xw_yw_Y) == 0:
-    rospy.loginfo("Waiting for yellow block to appear...")
-    time.sleep(0.1)
-
-# New yellow location AFTER green is removed
-start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
-
-# Move YELLOW
-move_block(pub_command, loop_rate, start_yellow, DROP_YELLOW, vel, accel)
-
-
-# ========================= Student's code ends here ===========================
 
     move_arm(pub_command, loop_rate, go_away, vel, accel)
     rospy.loginfo("Task Completed!")
