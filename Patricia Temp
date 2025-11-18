@@ -557,6 +557,27 @@ def main():
     move_block(pub_command, loop_rate, start_green,  DROP_GREEN,  vel, accel)
     move_block(pub_command, loop_rate, start_yellow, DROP_YELLOW, vel, accel)
 
+# Move GREEN first
+move_block(pub_command, loop_rate, start_green, DROP_GREEN, vel, accel)
+
+# ===== Re-detect blocks before moving YELLOW =====
+rospy.loginfo("Re-detecting yellow block after moving green...")
+
+# Wait a little for camera update
+time.sleep(1.0)
+
+# Ensure yellow exists now
+while len(xw_yw_Y) == 0:
+    rospy.loginfo("Waiting for yellow block to appear...")
+    time.sleep(0.1)
+
+# New yellow location AFTER green is removed
+start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
+
+# Move YELLOW
+move_block(pub_command, loop_rate, start_yellow, DROP_YELLOW, vel, accel)
+
+
 # ========================= Student's code ends here ===========================
 
     move_arm(pub_command, loop_rate, go_away, vel, accel)
