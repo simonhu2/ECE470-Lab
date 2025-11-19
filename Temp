@@ -1,49 +1,138 @@
-# Z coordinate values
-    PICK_Z  = 0.02
-    PLACE_Z = 0.02
+#!/usr/bin/env python
 
-    rospy.loginfo("Waiting for block detection")
+import cv2
+import numpy as np
 
-    # Wait for initial detection and save positions BEFORE any movement
-    time.sleep(3)  # Give camera time to stabilize
+# ========================= Student's code starts here =========================
+
+# Params for camera calibration
+theta = 0.0150
+beta = 720
+tx = 0.2487
+ty = 0.1270
+
+# Function that converts image coord to world coord
+def IMG2W(col, row):
+    o_r = 240
+    o_c = 320
+
+    x_c = (1/beta) * (row - o_r) 
+    y_c = (1/beta) * (col - o_c)
+
+    x_w = np.cos(theta)*x_c - np.sin(theta)*y_c + tx
+    y_w = np.sin(theta)*x_c + np.cos(theta)*y_c + ty
+
+    return [x_w, y_w]
+
+# ========================= Student's code ends here ===========================
+
+def blob_search(image_raw, color):
+    # FIXED: Initialize empty lists for ONLY the requested color
+    keypoints = []
+    xw_yw = []
+
+    # Setup SimpleBlobDetector parameters.
+    params = cv2.SimpleBlobDetector_Params()
+
+    # ========================= Student's code starts here =========================
+
+    # Filter by Color
+    params.filterByColor = False
+
+    # Filter by Area.
+    params.filterByArea = True
+    params.minArea = 100
+    params.maxArea = 1000
+
+    # Filter by Circularity
+    params.filterByCircularity = False
+    # Filter by Inertia
+    params.filterByInertia = False
+    # Filter by Convexity
+    params.filterByConvexity = False
+
+    # ========================= Student's code ends here ===========================
+
+    # Create a detector with the parameters
+    detector = cv2.SimpleBlobDetector_create(params)
+
+    # Convert the image into the HSV color space
+    hsv_image = cv2.cvtColor(image_raw, cv2.COLOR_BGR2HSV)
+
+    # ========================= Student's code starts here =========================
+
+    # Define color ranges for ALL colors we want to detect
+    color_ranges = {
+        "orange": ((5, 100, 100), (15, 255, 100)),
+        "green": ((40, 50, 50), (90, 255, 255)),
+        "yellow": ((20, 60, 60), (35, 255, 255))  # FIXED: Changed from "blue" to "yellow"
+    }
     
-    # Save initial block positions BEFORE any arm movement
-    initial_green_blocks = copy.deepcopy(xw_yw_G)
-    initial_yellow_blocks = copy.deepcopy(xw_yw_Y)
-    
-    print(f"Initial detection - Green blocks: {len(initial_green_blocks)}, Yellow blocks: {len(initial_yellow_blocks)}")
-    
-    # Validate and print the saved positions
-    for i, pos in enumerate(initial_green_blocks):
-        print(f"Green block {i+1}: ({pos[0]:.3f}, {pos[1]:.3f})")
-    
-    for i, pos in enumerate(initial_yellow_blocks):
-        print(f"Yellow block {i+1}: ({pos[0]:.3f}, {pos[1]:.3f})")
+    # Define BGR colors for drawing keypoints (for visual distinction)
+    color_bgr_map = {
+        "orange": (255, 0, 0),   # blue in BGR
+        "green": (0, 255, 0),    # Green in BGR  
+        "yellow": (0, 0, 255)    # red in BGR
+    }
 
-    # Goal positions
-    green_goals = [[0.25, -0.10, PLACE_Z], [0.25, -0.20, PLACE_Z]]
-    yellow_goals = [[0.25, 0.10, PLACE_Z], [0.25, 0.20, PLACE_Z]]
+    # FIXED: Only process the requested color for detection
+    if color in color_ranges:
+        lower, upper = color_ranges[color]
+        
+        # Create mask for the requested color only
+        mask = cv2.inRange(hsv_image, lower, upper)
+        
+        # Apply morphological operations to clean up the mask
+        kernel = np.ones((7, 7), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        
+        # Detect keypoints for this specific color
+        keypoints = detector.detect(mask)
+        
+        # Convert to world coordinates for this specific color
+        for kp in keypoints:
+            x_w, y_w = IMG2W(kp.pt[0], kp.pt[1])
+            xw_yw.append((x_w, y_w))
 
-    # Move green blocks using INITIAL saved positions
-    for i, green_block in enumerate(initial_green_blocks):
-        if i < len(green_goals):
-            start_pos = [green_block[0], green_block[1], PICK_Z]
-            print(f"MOVING GREEN {i+1}: {start_pos} -> {green_goals[i]}")
-            error = move_block(pub_command, loop_rate, start_pos, green_goals[i], vel, accel)
-            if error == 0:
-                print(f"Successfully moved green block {i+1}")
-            else:
-                print(f"Error moving green block {i+1}: {error}")
-            time.sleep(2.0)
+    # FIXED: For visualization, still show all colors but only return requested color
+    im_with_all_keypoints = image_raw.copy()
+    combined_mask = np.zeros_like(mask)
+    
+    # Draw keypoints for ALL colors (for visualization only)
+    for color_name, (lower, upper) in color_ranges.items():
+        color_mask = cv2.inRange(hsv_image, lower, upper)
+        kernel = np.ones((7, 7), np.uint8)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
+        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
+        
+        # Add to combined mask for display
+        combined_mask = cv2.bitwise_or(combined_mask, color_mask)
+        
+        # Detect and draw keypoints for this color (visualization only)
+        vis_keypoints = detector.detect(color_mask)
+        if len(vis_keypoints) > 0:
+            im_with_all_keypoints = cv2.drawKeypoints(
+                im_with_all_keypoints, vis_keypoints, np.array([]), 
+                color_bgr_map[color_name], cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
+            )
 
-    # Move yellow blocks using INITIAL saved positions
-    for i, yellow_block in enumerate(initial_yellow_blocks):
-        if i < len(yellow_goals):
-            start_pos = [yellow_block[0], yellow_block[1], PICK_Z]
-            print(f"MOVING YELLOW {i+1}: {start_pos} -> {yellow_goals[i]}")
-            error = move_block(pub_command, loop_rate, start_pos, yellow_goals[i], vel, accel)
-            if error == 0:
-                print(f"Successfully moved yellow block {i+1}")
-            else:
-                print(f"Error moving yellow block {i+1}: {error}")
-            time.sleep(2.0)
+    # Print results for the requested color only
+    if len(keypoints) == 0:
+        print(f"No {color} blocks found!")
+    else:
+        print(f"Found {len(keypoints)} {color} blocks")
+
+    # ========================= Student's code ends here ===========================
+
+    cv2.namedWindow("Camera View")
+    cv2.imshow("Camera View", image_raw)
+    cv2.namedWindow("Mask View")
+    cv2.imshow("Mask View", combined_mask)
+    cv2.namedWindow("Keypoint View")
+    cv2.imshow("Keypoint View", im_with_all_keypoints)
+
+    cv2.waitKey(2)
+
+    # FIXED: Return world coordinates for ONLY the requested color
+    return xw_yw
