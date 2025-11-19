@@ -1,91 +1,65 @@
+# ========================= Student's code starts here =========================
+
 # Z coordinate values
 PICK_Z  = 0.02
 PLACE_Z = 0.02
 
 rospy.loginfo("Waiting for block detection")
 
-# Wait until we have at least some blocks detected
+# Wait for initial detection
 while len(xw_yw_G) == 0 and len(xw_yw_Y) == 0:
     time.sleep(0.1)
 
-# CHANGED: Only save GREEN blocks initially, we'll get YELLOW blocks after moving greens
-all_green_blocks = []
-all_yellow_blocks = []
+# CHANGED: Save ORIGINAL positions of ALL blocks with color identification
+original_green_blocks = []
+original_yellow_blocks = []
 
 def is_valid_coordinate(x, y):
-    """Check if coordinates are valid and within workspace"""
     import math
     if math.isnan(x) or math.isnan(y):
         return False
-    if abs(x) > 0.5 or abs(y) > 0.5:  # Rough workspace bounds
+    if abs(x) > 0.5 or abs(y) > 0.5:
         return False
     return True
 
-# CHANGED: Only process green blocks for now
+# CHANGED: Since blob_search returns mixed colors, we need to identify them by position
+# We'll assume the first call has the correct color separation
+print("SAVING ORIGINAL BLOCK POSITIONS...")
+
+# Save initial green blocks (from first detection)
 for i, block_pos in enumerate(xw_yw_G):
     if i < 2 and is_valid_coordinate(block_pos[0], block_pos[1]):
-        all_green_blocks.append([block_pos[0], block_pos[1], PICK_Z])
-    elif i < 2:
-        print(f"WARNING: Skipping invalid green block at position {block_pos}")
+        original_green_blocks.append([block_pos[0], block_pos[1], PICK_Z])
+        print(f"Saved green block at: {block_pos}")
 
-print(f"Found {len(all_green_blocks)} valid green blocks")
-
-# Define multiple goal positions
-green_goals = [
-    [0.25, -0.10, PLACE_Z],
-    [0.25, -0.20, PLACE_Z]
-]
-
-yellow_goals = [
-    [0.25, 0.10, PLACE_Z],
-    [0.25, 0.20, PLACE_Z]
-]
-
-# Move all green blocks
-for i, green_block in enumerate(all_green_blocks):
-    if i < len(green_goals):
-        print(f"Moving green block {i+1} from {green_block} to {green_goals[i]}")
-        try:
-            error = move_block(pub_command, loop_rate, green_block, green_goals[i], vel, accel)
-            if error != 0:
-                rospy.logerr(f"Failed to move green block {i+1}, error code: {error}")
-            else:
-                print(f"Successfully moved green block {i+1}")
-        except Exception as e:
-            rospy.logerr(f"Exception moving green block {i+1}: {e}")
-        time.sleep(2.0)
-
-# CHANGED: Now get FRESH yellow block positions after moving greens
-print("Getting updated yellow block positions...")
-move_arm(pub_command, loop_rate, go_away, vel, accel)
-time.sleep(3.0)  # Wait for camera to see updated scene
-
-# CHANGED: Wait for yellow blocks to be detected
-attempts = 0
-while len(xw_yw_Y) == 0 and attempts < 10:
-    print("Waiting for yellow blocks to be detected...")
-    time.sleep(1.0)
-    attempts += 1
-
-# CHANGED: Process YELLOW blocks with CURRENT positions
+# Save initial yellow blocks (from first detection)  
 for i, block_pos in enumerate(xw_yw_Y):
     if i < 2 and is_valid_coordinate(block_pos[0], block_pos[1]):
-        all_yellow_blocks.append([block_pos[0], block_pos[1], PICK_Z])
-    elif i < 2:
-        print(f"WARNING: Skipping invalid yellow block at position {block_pos}")
+        original_yellow_blocks.append([block_pos[0], block_pos[1], PICK_Z])
+        print(f"Saved yellow block at: {block_pos}")
 
-print(f"Found {len(all_yellow_blocks)} valid yellow blocks after moving greens")
+print(f"Original: {len(original_green_blocks)} green, {len(original_yellow_blocks)} yellow")
 
-# Move all yellow blocks with FRESH positions
-for i, yellow_block in enumerate(all_yellow_blocks):
-    if i < len(yellow_goals):
-        print(f"Moving yellow block {i+1} from {yellow_block} to {yellow_goals[i]}")
-        try:
-            error = move_block(pub_command, loop_rate, yellow_block, yellow_goals[i], vel, accel)
-            if error != 0:
-                rospy.logerr(f"Failed to move yellow block {i+1}, error code: {error}")
-            else:
-                print(f"Successfully moved yellow block {i+1}")
-        except Exception as e:
-            rospy.logerr(f"Exception moving yellow block {i+1}: {e}")
+# Goal positions
+green_goals = [[0.25, -0.10, PLACE_Z], [0.25, -0.20, PLACE_Z]]
+yellow_goals = [[0.25, 0.10, PLACE_Z], [0.25, 0.20, PLACE_Z]]
+
+# CHANGED: Move greens using ORIGINAL saved positions
+for i, green_block in enumerate(original_green_blocks):
+    if i < len(green_goals):
+        print(f"MOVING GREEN {i+1}: {green_block} -> {green_goals[i]}")
+        error = move_block(pub_command, loop_rate, green_block, green_goals[i], vel, accel)
+        if error == 0:
+            print(f"Successfully moved green block {i+1}")
         time.sleep(2.0)
+
+# CHANGED: Move yellows using ORIGINAL saved positions (NOT updated detections)
+for i, yellow_block in enumerate(original_yellow_blocks):
+    if i < len(yellow_goals):
+        print(f"MOVING YELLOW {i+1}: {yellow_block} -> {yellow_goals[i]}")
+        error = move_block(pub_command, loop_rate, yellow_block, yellow_goals[i], vel, accel)
+        if error == 0:
+            print(f"Successfully moved yellow block {i+1}")
+        time.sleep(2.0)
+
+# ========================= Student's code ends here ===========================
