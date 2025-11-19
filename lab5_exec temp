@@ -781,7 +781,7 @@ def main():
     rospy.loginfo("Waiting for block detection")
 
     # Wait for initial detection
-    while len(xw_yw_G) == 0 and len(xw_yw_Y) == 0:
+    while (len(xw_yw_G) == 0 and len(xw_yw_Y) == 0) and (len(xw_yw_G) != 2 and len(xw_yw_Y) != 2):
         time.sleep(0.1)
 
     # CHANGED: Save ORIGINAL positions of ALL blocks with color identification
