@@ -1,117 +1,32 @@
-# ========================= Student's code starts here =========================
-
-# Z coordinate values
-PICK_Z  = 0.02
-PLACE_Z = 0.02
-
-# CHANGED: Create a flag to track when we have good detection
-detection_complete = False
-detection_attempts = 0
-
-rospy.loginfo("Waiting for stable block detection...")
-
-# CHANGED: Wait for stable detection with multiple checks
-while not detection_complete and detection_attempts < 20:
-    detection_attempts += 1
+# Define HSV ranges for EACH color
+    color_ranges = {
+        "green": ((40, 50, 50), (90, 255, 255)),
+        "yellow": ((20, 60, 60), (35, 255, 255)),  # This is what you had as "blue"
+    }
     
-    # Check if we have blocks in BOTH colors
-    green_count = len(xw_yw_G)
-    yellow_count = len(xw_yw_Y)
-    
-    print(f"Detection attempt {detection_attempts}: Green={green_count}, Yellow={yellow_count}")
-    
-    # Require at least 1 block of each color for stable detection
-    if green_count >= 1 and yellow_count >= 1:
-        detection_complete = True
-        print("✓ Stable detection achieved!")
+    # Get the appropriate color range based on the input parameter
+    if color in color_ranges:
+        lower, upper = color_ranges[color]
     else:
-        time.sleep(0.5)  # Wait for next callback
+        print(f"Unknown color: {color}")
+        return []
 
-if not detection_complete:
-    rospy.logwarn("Could not achieve stable detection of both colors, using what we have...")
-
-# CHANGED: Use the current state of global variables (they should be populated now)
-original_green_blocks = []
-original_yellow_blocks = []
-
-def is_valid_coordinate(x, y):
-    """Check if coordinates are valid"""
-    if np.isnan(x) or np.isnan(y):
-        return False
-    if abs(x) > 0.5 or abs(y) > 0.5:
-        return False
-    return True
-
-print("=== FINAL BLOCK DETECTION ===")
-print(f"Green blocks detected: {len(xw_yw_G)}")
-print(f"Yellow blocks detected: {len(xw_yw_Y)}")
-
-# CHANGED: Save ALL valid blocks from the current global variables
-for i, block_pos in enumerate(xw_yw_G):
-    if is_valid_coordinate(block_pos[0], block_pos[1]):
-        original_green_blocks.append([block_pos[0], block_pos[1], PICK_Z])
-        print(f"Green block {i+1}: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
-
-for i, block_pos in enumerate(xw_yw_Y):
-    if is_valid_coordinate(block_pos[0], block_pos[1]):
-        original_yellow_blocks.append([block_pos[0], block_pos[1], PICK_Z])
-        print(f"Yellow block {i+1}: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
-
-print(f"TOTAL BLOCKS READY TO MOVE: {len(original_green_blocks)} green, {len(original_yellow_blocks)} yellow")
-
-# Goal positions
-green_goals = [
-    [0.25, -0.10, PLACE_Z],
-    [0.25, -0.20, PLACE_Z],
-    [0.25, -0.30, PLACE_Z]
-]
-
-yellow_goals = [
-    [0.25, 0.10, PLACE_Z],
-    [0.25, 0.20, PLACE_Z],
-    [0.25, 0.30, PLACE_Z]
-]
-
-# Move green blocks
-if len(original_green_blocks) > 0:
-    print("=== MOVING GREEN BLOCKS ===")
-    for i, green_block in enumerate(original_green_blocks):
-        if i < len(green_goals):
-            print(f"Moving green block {i+1}...")
-            try:
-                error = move_block(pub_command, loop_rate, green_block, green_goals[i], vel, accel)
-                if error == 0:
-                    print(f"✓ Successfully moved green block {i+1}")
-                else:
-                    rospy.logerr(f"✗ Failed to move green block {i+1}, error: {error}")
-            except Exception as e:
-                rospy.logerr(f"✗ Exception moving green block {i+1}: {e}")
-            time.sleep(2.0)
-else:
-    print("No green blocks to move")
-
-# Return to safe position
-move_arm(pub_command, loop_rate, go_away, vel, accel)
-time.sleep(1.0)
-
-# Move yellow blocks
-if len(original_yellow_blocks) > 0:
-    print("=== MOVING YELLOW BLOCKS ===")
-    for i, yellow_block in enumerate(original_yellow_blocks):
-        if i < len(yellow_goals):
-            print(f"Moving yellow block {i+1}...")
-            try:
-                error = move_block(pub_command, loop_rate, yellow_block, yellow_goals[i], vel, accel)
-                if error == 0:
-                    print(f"✓ Successfully moved yellow block {i+1}")
-                else:
-                    rospy.logerr(f"✗ Failed to move yellow block {i+1}, error: {error}")
-            except Exception as e:
-                rospy.logerr(f"✗ Exception moving yellow block {i+1}: {e}")
-            time.sleep(2.0)
-else:
-    print("No yellow blocks to move")
-
-print("=== PICK AND PLACE OPERATION COMPLETED ===")
-
-# ========================= Student's code ends here ===========================
+    # Create mask for the SPECIFIED color only
+    mask = cv2.inRange(hsv_image, lower, upper)
+    
+    # Apply morphological operations to clean up the mask
+    kernel = np.ones((7, 7), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    
+    # Detect keypoints for this specific color
+    keypoints = detector.detect(mask)
+    
+    # Convert to world coordinates
+    xw_yw = []
+    for kp in keypoints:
+        x_w, y_w = IMG2W(kp.pt[0], kp.pt[1])
+        xw_yw.append((x_w, y_w))
+    
+    # Draw keypoints on image
+    im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), (0, 0, 255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
