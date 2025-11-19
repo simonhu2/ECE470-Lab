@@ -1,60 +1,104 @@
-# CHANGED: Process only the requested color
-if color == "orange":
-    lower = (5, 100, 100)
-    upper = (15, 255, 255)
-    color_bgr = (0, 0, 255)  # Red for orange
-elif color == "green":
-    lower = (40, 50, 50)
-    upper = (90, 255, 255)
-    color_bgr = (0, 255, 0)  # Green for green
-elif color == "yellow":
-    # CHANGED: Use wider yellow range to ensure detection
-    lower = (15, 100, 100)   # Lower hue for yellow
-    upper = (35, 255, 255)   # Higher hue for yellow
-    color_bgr = (0, 255, 255)  # Yellow for yellow
+PICK_Z  = 0.02
+PLACE_Z = 0.02
+
+rospy.loginfo("Waiting for block detection...")
+
+# CHANGED: Wait longer and check both colors separately
+detection_timeout = 10  # seconds
+start_time = time.time()
+green_detected = False
+yellow_detected = False
+
+while (time.time() - start_time) < detection_timeout:
+    if len(xw_yw_G) > 0:
+        green_detected = True
+        print(f"Green blocks detected: {len(xw_yw_G)}")
+    if len(xw_yw_Y) > 0:
+        yellow_detected = True  
+        print(f"Yellow blocks detected: {len(xw_yw_Y)}")
+    if green_detected and yellow_detected:
+        break
+    time.sleep(0.5)
+
+if not green_detected and not yellow_detected:
+    rospy.logerr("No blocks detected after timeout! Check camera and colors.")
+    # Continue anyway to see what happens
+
+# CHANGED: Save current block positions
+original_green_blocks = []
+original_yellow_blocks = []
+
+def is_valid_coordinate(x, y):
+    """Check if coordinates are valid (CHANGED)"""
+    if np.isnan(x) or np.isnan(y):
+        return False
+    if abs(x) > 0.5 or abs(y) > 0.5:  # Workspace bounds
+        return False
+    return True
+
+# CHANGED: Save detected blocks with validation
+print("=== SAVING BLOCK POSITIONS ===")
+for i, block_pos in enumerate(xw_yw_G):
+    if i < 2 and is_valid_coordinate(block_pos[0], block_pos[1]):
+        original_green_blocks.append([block_pos[0], block_pos[1], PICK_Z])
+        print(f"Green block {i+1}: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
+
+for i, block_pos in enumerate(xw_yw_Y):
+    if i < 2 and is_valid_coordinate(block_pos[0], block_pos[1]):
+        original_yellow_blocks.append([block_pos[0], block_pos[1], PICK_Z])
+        print(f"Yellow block {i+1}: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
+
+print(f"TOTAL: {len(original_green_blocks)} green, {len(original_yellow_blocks)} yellow blocks")
+
+# CHANGED: Define goal positions
+green_goals = [
+    [0.25, -0.10, PLACE_Z],
+    [0.25, -0.20, PLACE_Z]
+]
+
+yellow_goals = [
+    [0.25, 0.10, PLACE_Z],
+    [0.25, 0.20, PLACE_Z]
+]
+
+# CHANGED: Move green blocks with detailed logging
+if len(original_green_blocks) > 0:
+    print("=== MOVING GREEN BLOCKS ===")
+    for i, green_block in enumerate(original_green_blocks):
+        if i < len(green_goals):
+            print(f"Green {i+1}: ({green_block[0]:.3f}, {green_block[1]:.3f}) -> ({green_goals[i][0]:.3f}, {green_goals[i][1]:.3f})")
+            try:
+                error = move_block(pub_command, loop_rate, green_block, green_goals[i], vel, accel)
+                if error == 0:
+                    print(f"✓ Successfully moved green block {i+1}")
+                else:
+                    rospy.logerr(f"✗ Failed to move green block {i+1}, error: {error}")
+            except Exception as e:
+                rospy.logerr(f"✗ Exception moving green block {i+1}: {e}")
+            time.sleep(2.0)
 else:
-    lower = (5, 100, 100)
-    upper = (15, 255, 255)
-    color_bgr = (0, 0, 255)
+    print("No green blocks to move")
 
-# Create mask for ONLY the requested color
-mask_image = cv2.inRange(hsv_image, lower, upper)
+# CHANGED: Return to safe position
+move_arm(pub_command, loop_rate, go_away, vel, accel)
+time.sleep(1.0)
 
-# Apply morphological operations to clean up detection
-kernel = np.ones((7, 7), np.uint8)
-mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
-mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
-
-# CHANGED: Detect keypoints for the requested color only
-keypoints = detector.detect(mask_image)
-
-# CHANGED: Create combined mask for display (shows all colors)
-combined_mask = np.zeros_like(mask_image)
-color_ranges_display = {
-    "orange": ((5, 100, 100), (15, 255, 255)),
-    "green": ((40, 50, 50), (90, 255, 255)),
-    "yellow": ((15, 100, 100), (35, 255, 255))  # CHANGED: Wider yellow range
-}
-
-for color_name, (lower, upper) in color_ranges_display.items():
-    color_mask = cv2.inRange(hsv_image, lower, upper)
-    kernel = np.ones((7, 7), np.uint8)
-    color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
-    color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
-    combined_mask = cv2.bitwise_or(combined_mask, color_mask)
-
-# CHANGED: Draw keypoints for the detected color
-if len(keypoints) > 0:
-    im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), color_bgr, cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+# CHANGED: Move yellow blocks with detailed logging
+if len(original_yellow_blocks) > 0:
+    print("=== MOVING YELLOW BLOCKS ===")
+    for i, yellow_block in enumerate(original_yellow_blocks):
+        if i < len(yellow_goals):
+            print(f"Yellow {i+1}: ({yellow_block[0]:.3f}, {yellow_block[1]:.3f}) -> ({yellow_goals[i][0]:.3f}, {yellow_goals[i][1]:.3f})")
+            try:
+                error = move_block(pub_command, loop_rate, yellow_block, yellow_goals[i], vel, accel)
+                if error == 0:
+                    print(f"✓ Successfully moved yellow block {i+1}")
+                else:
+                    rospy.logerr(f"✗ Failed to move yellow block {i+1}, error: {error}")
+            except Exception as e:
+                rospy.logerr(f"✗ Exception moving yellow block {i+1}: {e}")
+            time.sleep(2.0)
 else:
-    im_with_keypoints = image_raw  # No keypoints to draw
+    print("No yellow blocks to move")
 
-# CHANGED: Return coordinates for ONLY the requested color
-xw_yw = []
-for i in range(len(keypoints)):
-    xw_yw.append(IMG2W(keypoints[i].pt[0], keypoints[i].pt[1]))
-
-if len(keypoints) == 0:
-    print(f"No {color} blocks found in this frame")
-else:
-    print(f"Found {len(keypoints)} {color} blocks")
+print("=== PICK AND PLACE COMPLETED ===")
