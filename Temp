@@ -4,68 +4,80 @@
 PICK_Z  = 0.02
 PLACE_Z = 0.02
 
-rospy.loginfo("Waiting for block detection...")
+# CHANGED: Create a flag to track when we have good detection
+detection_complete = False
+detection_attempts = 0
 
-# CHANGED: Give more time for initial detection and use simpler approach
-time.sleep(3)  # Increased initial wait
+rospy.loginfo("Waiting for stable block detection...")
 
-# CHANGED: Check current state of global variables directly
-print(f"Initial check - Green blocks: {len(xw_yw_G)}, Yellow blocks: {len(xw_yw_Y)}")
+# CHANGED: Wait for stable detection with multiple checks
+while not detection_complete and detection_attempts < 20:
+    detection_attempts += 1
+    
+    # Check if we have blocks in BOTH colors
+    green_count = len(xw_yw_G)
+    yellow_count = len(xw_yw_Y)
+    
+    print(f"Detection attempt {detection_attempts}: Green={green_count}, Yellow={yellow_count}")
+    
+    # Require at least 1 block of each color for stable detection
+    if green_count >= 1 and yellow_count >= 1:
+        detection_complete = True
+        print("✓ Stable detection achieved!")
+    else:
+        time.sleep(0.5)  # Wait for next callback
 
-# CHANGED: If no blocks detected, wait a bit more with periodic checking
-if len(xw_yw_G) == 0 and len(xw_yw_Y) == 0:
-    rospy.loginfo("No blocks detected yet, waiting up to 5 seconds...")
-    for i in range(10):  # Check 10 times over 5 seconds
-        time.sleep(0.5)
-        print(f"Check {i+1}: Green={len(xw_yw_G)}, Yellow={len(xw_yw_Y)}")
-        if len(xw_yw_G) > 0 or len(xw_yw_Y) > 0:
-            break
+if not detection_complete:
+    rospy.logwarn("Could not achieve stable detection of both colors, using what we have...")
 
-# CHANGED: Save current block positions (use whatever we have)
+# CHANGED: Use the current state of global variables (they should be populated now)
 original_green_blocks = []
 original_yellow_blocks = []
 
 def is_valid_coordinate(x, y):
-    """Check if coordinates are valid (CHANGED)"""
+    """Check if coordinates are valid"""
     if np.isnan(x) or np.isnan(y):
         return False
     if abs(x) > 0.5 or abs(y) > 0.5:
         return False
     return True
 
-print("=== SAVING CURRENT BLOCK POSITIONS ===")
+print("=== FINAL BLOCK DETECTION ===")
+print(f"Green blocks detected: {len(xw_yw_G)}")
+print(f"Yellow blocks detected: {len(xw_yw_Y)}")
 
-# CHANGED: Save ALL valid green blocks (not limited to 2)
+# CHANGED: Save ALL valid blocks from the current global variables
 for i, block_pos in enumerate(xw_yw_G):
     if is_valid_coordinate(block_pos[0], block_pos[1]):
         original_green_blocks.append([block_pos[0], block_pos[1], PICK_Z])
         print(f"Green block {i+1}: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
 
-# CHANGED: Save ALL valid yellow blocks (not limited to 2)
 for i, block_pos in enumerate(xw_yw_Y):
     if is_valid_coordinate(block_pos[0], block_pos[1]):
         original_yellow_blocks.append([block_pos[0], block_pos[1], PICK_Z])
         print(f"Yellow block {i+1}: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
 
-print(f"TOTAL BLOCKS TO MOVE: {len(original_green_blocks)} green, {len(original_yellow_blocks)} yellow")
+print(f"TOTAL BLOCKS READY TO MOVE: {len(original_green_blocks)} green, {len(original_yellow_blocks)} yellow")
 
-# CHANGED: Define goal positions (create enough for all blocks)
+# Goal positions
 green_goals = [
     [0.25, -0.10, PLACE_Z],
-    [0.25, -0.20, PLACE_Z]
+    [0.25, -0.20, PLACE_Z],
+    [0.25, -0.30, PLACE_Z]
 ]
 
 yellow_goals = [
     [0.25, 0.10, PLACE_Z],
-    [0.25, 0.20, PLACE_Z]
+    [0.25, 0.20, PLACE_Z],
+    [0.25, 0.30, PLACE_Z]
 ]
 
-# CHANGED: Move green blocks (as many as we detected)
+# Move green blocks
 if len(original_green_blocks) > 0:
     print("=== MOVING GREEN BLOCKS ===")
     for i, green_block in enumerate(original_green_blocks):
         if i < len(green_goals):
-            print(f"Moving green block {i+1} from ({green_block[0]:.3f}, {green_block[1]:.3f}) to goal {i+1}")
+            print(f"Moving green block {i+1}...")
             try:
                 error = move_block(pub_command, loop_rate, green_block, green_goals[i], vel, accel)
                 if error == 0:
@@ -78,16 +90,16 @@ if len(original_green_blocks) > 0:
 else:
     print("No green blocks to move")
 
-# CHANGED: Return to safe position
+# Return to safe position
 move_arm(pub_command, loop_rate, go_away, vel, accel)
 time.sleep(1.0)
 
-# CHANGED: Move yellow blocks (as many as we detected)
+# Move yellow blocks
 if len(original_yellow_blocks) > 0:
     print("=== MOVING YELLOW BLOCKS ===")
     for i, yellow_block in enumerate(original_yellow_blocks):
         if i < len(yellow_goals):
-            print(f"Moving yellow block {i+1} from ({yellow_block[0]:.3f}, {yellow_block[1]:.3f}) to goal {i+1}")
+            print(f"Moving yellow block {i+1}...")
             try:
                 error = move_block(pub_command, loop_rate, yellow_block, yellow_goals[i], vel, accel)
                 if error == 0:
