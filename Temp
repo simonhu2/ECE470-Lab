@@ -1,32 +1,49 @@
-# Define HSV ranges for EACH color
-    color_ranges = {
-        "green": ((40, 50, 50), (90, 255, 255)),
-        "yellow": ((20, 60, 60), (35, 255, 255)),  # This is what you had as "blue"
-    }
-    
-    # Get the appropriate color range based on the input parameter
-    if color in color_ranges:
-        lower, upper = color_ranges[color]
-    else:
-        print(f"Unknown color: {color}")
-        return []
+# Z coordinate values
+    PICK_Z  = 0.02
+    PLACE_Z = 0.02
 
-    # Create mask for the SPECIFIED color only
-    mask = cv2.inRange(hsv_image, lower, upper)
+    rospy.loginfo("Waiting for block detection")
+
+    # Wait for initial detection and save positions BEFORE any movement
+    time.sleep(3)  # Give camera time to stabilize
     
-    # Apply morphological operations to clean up the mask
-    kernel = np.ones((7, 7), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    # Save initial block positions BEFORE any arm movement
+    initial_green_blocks = copy.deepcopy(xw_yw_G)
+    initial_yellow_blocks = copy.deepcopy(xw_yw_Y)
     
-    # Detect keypoints for this specific color
-    keypoints = detector.detect(mask)
+    print(f"Initial detection - Green blocks: {len(initial_green_blocks)}, Yellow blocks: {len(initial_yellow_blocks)}")
     
-    # Convert to world coordinates
-    xw_yw = []
-    for kp in keypoints:
-        x_w, y_w = IMG2W(kp.pt[0], kp.pt[1])
-        xw_yw.append((x_w, y_w))
+    # Validate and print the saved positions
+    for i, pos in enumerate(initial_green_blocks):
+        print(f"Green block {i+1}: ({pos[0]:.3f}, {pos[1]:.3f})")
     
-    # Draw keypoints on image
-    im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), (0, 0, 255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    for i, pos in enumerate(initial_yellow_blocks):
+        print(f"Yellow block {i+1}: ({pos[0]:.3f}, {pos[1]:.3f})")
+
+    # Goal positions
+    green_goals = [[0.25, -0.10, PLACE_Z], [0.25, -0.20, PLACE_Z]]
+    yellow_goals = [[0.25, 0.10, PLACE_Z], [0.25, 0.20, PLACE_Z]]
+
+    # Move green blocks using INITIAL saved positions
+    for i, green_block in enumerate(initial_green_blocks):
+        if i < len(green_goals):
+            start_pos = [green_block[0], green_block[1], PICK_Z]
+            print(f"MOVING GREEN {i+1}: {start_pos} -> {green_goals[i]}")
+            error = move_block(pub_command, loop_rate, start_pos, green_goals[i], vel, accel)
+            if error == 0:
+                print(f"Successfully moved green block {i+1}")
+            else:
+                print(f"Error moving green block {i+1}: {error}")
+            time.sleep(2.0)
+
+    # Move yellow blocks using INITIAL saved positions
+    for i, yellow_block in enumerate(initial_yellow_blocks):
+        if i < len(yellow_goals):
+            start_pos = [yellow_block[0], yellow_block[1], PICK_Z]
+            print(f"MOVING YELLOW {i+1}: {start_pos} -> {yellow_goals[i]}")
+            error = move_block(pub_command, loop_rate, start_pos, yellow_goals[i], vel, accel)
+            if error == 0:
+                print(f"Successfully moved yellow block {i+1}")
+            else:
+                print(f"Error moving yellow block {i+1}: {error}")
+            time.sleep(2.0)
