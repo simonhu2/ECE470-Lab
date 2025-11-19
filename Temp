@@ -1,62 +1,81 @@
-# ========================= Student's code starts here =========================
+# Z coordinate values
+PICK_Z  = 0.02
+PLACE_Z = 0.02
 
-# CHANGED: Only process the requested color, not all colors
-if color == "orange":
-    lower = (5, 100, 100)
-    upper = (15, 255, 255)
-    color_bgr = (0, 0, 255)  # Red for orange
-elif color == "green":
-    lower = (40, 50, 50)
-    upper = (90, 255, 255)
-    color_bgr = (0, 255, 0)  # Green for green
-elif color == "yellow":
-    # CHANGED: Use actual yellow range
-    lower = (20, 100, 100)
-    upper = (30, 255, 255)
-    color_bgr = (0, 255, 255)  # Yellow for yellow
-else:
-    lower = (5, 100, 100)
-    upper = (15, 255, 255)
-    color_bgr = (0, 0, 255)
+rospy.loginfo("Waiting for block detection")
 
-# Create mask for ONLY the requested color
-mask_image = cv2.inRange(hsv_image, lower, upper)
+# CHANGED: Wait for initial detection and save positions immediately
+while len(xw_yw_G) == 0 and len(xw_yw_Y) == 0:
+    time.sleep(0.1)
 
-# Apply morphological operations
-kernel = np.ones((7, 7), np.uint8)
-mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_OPEN, kernel)
-mask_image = cv2.morphologyEx(mask_image, cv2.MORPH_CLOSE, kernel)
+# CHANGED: Save ORIGINAL block positions immediately after detection
+original_green_blocks = []
+original_yellow_blocks = []
 
-# CHANGED: Only detect keypoints for the requested color
-keypoints = detector.detect(mask_image)
+def is_valid_coordinate(x, y):
+    """Check if coordinates are valid and within workspace (CHANGED)"""
+    import math
+    if math.isnan(x) or math.isnan(y):
+        return False
+    if abs(x) > 0.5 or abs(y) > 0.5:
+        return False
+    return True
 
-# CHANGED: Create combined mask for display (optional)
-combined_mask = np.zeros_like(mask_image)
-color_ranges_display = {
-    "orange": ((5, 100, 100), (15, 255, 255)),
-    "green": ((40, 50, 50), (90, 255, 255)),
-    "yellow": ((20, 100, 100), (30, 255, 255))
-}
+# CHANGED: Save green blocks from initial detection
+for i, block_pos in enumerate(xw_yw_G):
+    if i < 2 and is_valid_coordinate(block_pos[0], block_pos[1]):
+        original_green_blocks.append([block_pos[0], block_pos[1], PICK_Z])
+        print(f"Saved green block {i+1} at: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
 
-for color_name, (lower, upper) in color_ranges_display.items():
-    color_mask = cv2.inRange(hsv_image, lower, upper)
-    kernel = np.ones((7, 7), np.uint8)
-    color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
-    color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
-    combined_mask = cv2.bitwise_or(combined_mask, color_mask)
+# CHANGED: Save yellow blocks from initial detection  
+for i, block_pos in enumerate(xw_yw_Y):
+    if i < 2 and is_valid_coordinate(block_pos[0], block_pos[1]):
+        original_yellow_blocks.append([block_pos[0], block_pos[1], PICK_Z])
+        print(f"Saved yellow block {i+1} at: ({block_pos[0]:.3f}, {block_pos[1]:.3f})")
 
-# CHANGED: Draw keypoints for ONLY the requested color
-im_with_keypoints = cv2.drawKeypoints(image_raw, keypoints, np.array([]), color_bgr, cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+print(f"Initial detection: {len(original_green_blocks)} green, {len(original_yellow_blocks)} yellow blocks")
 
-# CHANGED: Return coordinates for ONLY the requested color
-xw_yw = []
-num_blobs = len(keypoints)
-for i in range(num_blobs):
-    xw_yw.append(IMG2W(keypoints[i].pt[0], keypoints[i].pt[1]))
+# CHANGED: Define goal positions with proper spacing
+green_goals = [
+    [0.25, -0.10, PLACE_Z],
+    [0.25, -0.20, PLACE_Z]
+]
 
-if num_blobs == 0:
-    print(f"No {color} blocks found!")
-else:
-    print(f"Found {num_blobs} {color} blocks")
+yellow_goals = [
+    [0.25, 0.10, PLACE_Z],
+    [0.25, 0.20, PLACE_Z]
+]
 
-# ========================= Student's code ends here ===========================
+# CHANGED: Move ALL green blocks using original positions
+for i, green_block in enumerate(original_green_blocks):
+    if i < len(green_goals):
+        print(f"Moving green block {i+1} from ({green_block[0]:.3f}, {green_block[1]:.3f}) to ({green_goals[i][0]:.3f}, {green_goals[i][1]:.3f})")
+        try:
+            error = move_block(pub_command, loop_rate, green_block, green_goals[i], vel, accel)
+            if error != 0:
+                rospy.logerr(f"Failed to move green block {i+1}, error code: {error}")
+            else:
+                print(f"Successfully moved green block {i+1}")
+        except Exception as e:
+            rospy.logerr(f"Exception moving green block {i+1}: {e}")
+        # Wait between moves
+        time.sleep(2.0)
+
+# CHANGED: Return to safe position before moving yellow blocks
+move_arm(pub_command, loop_rate, go_away, vel, accel)
+time.sleep(1.0)
+
+# CHANGED: Move ALL yellow blocks using original positions
+for i, yellow_block in enumerate(original_yellow_blocks):
+    if i < len(yellow_goals):
+        print(f"Moving yellow block {i+1} from ({yellow_block[0]:.3f}, {yellow_block[1]:.3f}) to ({yellow_goals[i][0]:.3f}, {yellow_goals[i][1]:.3f})")
+        try:
+            error = move_block(pub_command, loop_rate, yellow_block, yellow_goals[i], vel, accel)
+            if error != 0:
+                rospy.logerr(f"Failed to move yellow block {i+1}, error code: {error}")
+            else:
+                print(f"Successfully moved yellow block {i+1}")
+        except Exception as e:
+            rospy.logerr(f"Exception moving yellow block {i+1}: {e}")
+        # Wait between moves
+        time.sleep(2.0)
