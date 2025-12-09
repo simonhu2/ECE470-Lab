@@ -3,8 +3,8 @@ n = state.shape[0]
     
     # Tuned parameters
     k_goal = 3.0
-    k_pair = 0.008
-    k_obs  = 0.02
+    k_pair = 0.012
+    k_obs  = 0.018
     k_wall = 0.05
     
     # Tolerance for reaching target (matches config.py tol=0.005)
