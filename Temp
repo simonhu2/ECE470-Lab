@@ -68,7 +68,7 @@ n = state.shape[0]
             V[i] += rep
             V[j] -= rep
     
-    # 3. OBSTACLE AVOIDANCE - Reduced near targets
+    # 3. OBSTACLE AVOIDANCE - FIXED: Special handling for central obstacle
     for i in range(n):
         # Check if robot is very close to its target
         near_target = dist_to_target[i] < tol * 3
@@ -83,19 +83,39 @@ n = state.shape[0]
             d = np.linalg.norm(diff) + eps
             min_clearance = radius + r + 0.005
             
-            # If robot is near target, obstacle avoidance should be minimal
-            if near_target:
-                # Only avoid if very close to obstacle
-                if d < min_clearance * 1.1:
-                    rep_strength = k_obs * 0.5 / ((d - min_clearance + 0.01) ** 2)
+            # CRITICAL FIX: Special handling for central obstacle (0,0)
+            is_central_obstacle = np.linalg.norm(center) < 0.01  # At (0,0)
+            
+            if is_central_obstacle:
+                # For central obstacle, use weaker but wider repulsion
+                # This helps robots pass through the center area without getting stuck
+                if near_target:
+                    # When near target, minimal avoidance of central obstacle
+                    if d < min_clearance * 1.2:
+                        rep_strength = k_obs * 0.3 / ((d - min_clearance + 0.02) ** 1.5)
+                    else:
+                        continue
                 else:
-                    continue
+                    # Wider activation zone for central obstacle
+                    if d < min_clearance + 0.2:  # Increased from 0.15
+                        # Softer gradient for central obstacle to prevent getting stuck
+                        rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
+                    else:
+                        continue
             else:
-                # Normal obstacle avoidance
-                if d < min_clearance + 0.15:
-                    rep_strength = k_obs / ((d - min_clearance + 0.03) ** 2)
+                # Normal obstacles (non-central)
+                if near_target:
+                    # Only avoid if very close to obstacle
+                    if d < min_clearance * 1.1:
+                        rep_strength = k_obs * 0.5 / ((d - min_clearance + 0.01) ** 2)
+                    else:
+                        continue
                 else:
-                    continue
+                    # Normal obstacle avoidance
+                    if d < min_clearance + 0.15:
+                        rep_strength = k_obs / ((d - min_clearance + 0.03) ** 2)
+                    else:
+                        continue
             
             V[i] += rep_strength * diff / d
     
@@ -125,7 +145,23 @@ n = state.shape[0]
             
             V[i] += boundary_strength * to_center
     
-    # 5. FINAL VELOCITY ADJUSTMENT - Critical for reaching targets
+    # 5. SPECIAL FIX: Additional guidance for robots stuck near central obstacle
+    # If multiple robots are near center and not making progress, give them a nudge
+    for i in range(n):
+        norm_pos = np.linalg.norm(state[i])
+        
+        # Check if robot is near center (within 0.3 of origin) and not near target
+        near_center = norm_pos < 0.3
+        if near_center and dist_to_target[i] > tol * 5:  # Not close to target
+            # Check if robot is making slow progress
+            if np.linalg.norm(V[i]) < 0.02:  # Moving very slowly
+                # Give a stronger push toward target
+                target_dir = to_target[i] / (dist_to_target[i] + eps)
+                # Add extra push in target direction
+                extra_push = target_dir * k_goal * 0.4
+                V[i] += extra_push
+    
+    # 6. FINAL VELOCITY ADJUSTMENT - Critical for reaching targets
     for i in range(n):
         # When very close to target, focus ONLY on reaching it
         if dist_to_target[i] < tol * 2:  # < 0.01
@@ -142,7 +178,7 @@ n = state.shape[0]
             # Reduce existing forces by 50%
             V[i] = goal_component + V[i] * 0.5
     
-    # 6. VELOCITY SCALING - Ensure enough velocity when close to target
+    # 7. VELOCITY SCALING - Ensure enough velocity when close to target
     norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
     
     # Scale based on distance to target
