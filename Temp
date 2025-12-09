@@ -68,7 +68,7 @@ n = state.shape[0]
             V[i] += rep
             V[j] -= rep
     
-    # 3. OBSTACLE AVOIDANCE - FIXED: Special handling for central obstacle
+    # 3. OBSTACLE AVOIDANCE - FIXED: Stronger central obstacle avoidance when close
     for i in range(n):
         # Check if robot is very close to its target
         near_target = dist_to_target[i] < tol * 3
@@ -87,7 +87,7 @@ n = state.shape[0]
             is_central_obstacle = np.linalg.norm(center) < 0.01  # At (0,0)
             
             if is_central_obstacle:
-                # For central obstacle, use weaker but wider repulsion
+                # For central obstacle, use wider activation but strong repulsion when close
                 # This helps robots pass through the center area without getting stuck
                 if near_target:
                     # When near target, minimal avoidance of central obstacle
@@ -98,8 +98,11 @@ n = state.shape[0]
                 else:
                     # Wider activation zone for central obstacle
                     if d < min_clearance + 0.2:  # Increased from 0.15
-                        # Softer gradient for central obstacle to prevent getting stuck
-                        rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
+                        # TWEAKED: Stronger repulsion when very close to prevent collisions
+                        if d < min_clearance * 1.05:  # Very close - strong repulsion
+                            rep_strength = k_obs * 2.0 / ((d - min_clearance + 0.01) ** 2.0)
+                        else:  # In the wider activation zone - moderate repulsion
+                            rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
                     else:
                         continue
             else:
