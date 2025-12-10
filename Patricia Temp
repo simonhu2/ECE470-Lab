@@ -1,599 +1,237 @@
-#blob_search
-
-#!/usr/bin/env python
-
-import cv2
-import numpy as np
-
-# ========================= Student's code starts here =========================
-
-# Params for camera calibration
-
-theta = 0.0150
-beta = 720
-tx = 0.2487
-ty = 0.1270
-
-# Function that converts image coord to world coord
-def IMG2W(col, row):
-    o_r = 240
-    o_c = 320
-
-    x_c = (1/beta) * (row - o_r) 
-    y_c = (1/beta) * (col - o_c)
-
-    x_w = np.cos(theta)*x_c - np.sin(theta)*y_c + tx
-    y_w = np.sin(theta)*x_c + np.cos(theta)*y_c + ty
-
-    return [x_w, y_w]
-# ========================= Student's code ends here ===========================
-
-# # Params for camera calibration
-# theta = 0.176
-# beta = 752.21      #10m apart
-# tx = 0.2571
-# ty = 0.062
-
-# # Function that converts image coord to world coord
-# def IMG2W(col, row):
-#     pass
-#     O_r = 240       #from Figure B.2
-#     O_c = 320
-
-#     x_c = (col - O_c) / beta
-#     y_c = (O_r - row) / beta        #since y increases when it goes down, we have to flip y
-
-#     x_w = x_c * np.cos(theta) - y_c * np.sin(theta) + tx
-#     y_w = x_c * np.sin(theta) + y_c * np.cos(theta) + ty
-
-#     return (x_w, y_w)
-
-
-# ========================= Student's code ends here ===========================
-
-def blob_search(image_raw, color):
-    # CHANGED: Initialize empty lists for all keypoints and world coordinates
-    all_keypoints = []
-    all_xw_yw = []
-
-    # Setup SimpleBlobDetector parameters.
-    params = cv2.SimpleBlobDetector_Params()
-
-    # ========================= Student's code starts here =========================
-
-    # Filter by Color
-    params.filterByColor = False
-
-    # Filter by Area.
-    params.filterByArea = True
-    params.minArea = 100
-    params.maxArea = 1000
-
-    # Filter by Circularity
-    params.filterByCircularity = False
-   # params.minCircularity = 0.70
-    #params.maxCircularity = 0.97
-
-    # Filter by Inerita
-    params.filterByInertia = False
-
-    # Filter by Convexity
-    params.filterByConvexity = False
-
-    # ========================= Student's code ends here ===========================
-
-    # Create a detector with the parameters
-    detector = cv2.SimpleBlobDetector_create(params)
-
-    # Convert the image into the HSV color space
-    hsv_image = cv2.cvtColor(image_raw, cv2.COLOR_BGR2HSV)
-
-    # ========================= Student's code starts here =========================
-
-    # CHANGED: Define color ranges for ALL colors we want to detect
-    color_ranges = {
-        "orange": ((5, 100, 100), (15, 255, 100)),
-        "green": ((40, 50, 50), (90, 255, 255)),
-        #"blue": ((100, 50, 50), (130, 255, 255))
-        "blue": ((20, 60, 60), (35, 255, 255))
-        #"blue": ((90, 60, 45), (135, 255, 105))
-
-    }
+n = state.shape[0]
+    eps = 1e-12
     
-    # CHANGED: Define BGR colors for drawing keypoints (for visual distinction)
-    color_bgr_map = {
-        "orange": (255, 0, 0),  # blue in BGR
-        "green": (0, 255, 0),     # Green in BGR  
-        "blue": (0, 0, 255)       # red in BGR
-    }
-
-    # CHANGED: Initialize the image we'll draw all keypoints on
-    im_with_all_keypoints = image_raw.copy()
+    # Optimized parameters
+    k_goal = 3.0
+    k_pair = 0.012
+    k_obs  = 0.018
+    k_wall = 0.05
     
-    # CHANGED: Process EACH color to detect blobs and accumulate keypoints
-    for color_name, (lower, upper) in color_ranges.items():
-        # Create mask for this color
-        mask = cv2.inRange(hsv_image, lower, upper)
+    tol = 0.005
+    
+    V = np.zeros_like(state)
+    
+    # 1. GOAL ATTRACTION
+    to_target = targets - state
+    dist_to_target = np.linalg.norm(to_target, axis=1) + eps
+    
+    for i in range(n):
+        dir_to_target = to_target[i] / dist_to_target[i]
         
-        # Apply morphological operations to clean up the mask
-        kernel = np.ones((7, 7), np.uint8)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        if dist_to_target[i] > tol * 3:
+            attraction_strength = k_goal * np.tanh(dist_to_target[i] * 2.0)
+        elif dist_to_target[i] > tol:
+            attraction_strength = k_goal * 0.1
+        else:
+            attraction_strength = k_goal * 0.05
         
-        # Detect keypoints for this color
-        keypoints = detector.detect(mask)
+        V[i] += attraction_strength * dir_to_target
+    
+    # 2. DETECT CROSSING ROBOTS (SPECIFIC TO PROBLEMATIC PERMUTATIONS)
+    # These are robots that need to pass through the center to reach opposite-side targets
+    crossing_robots = []
+    for i in range(n):
+        # Vector from robot to target
+        robot_to_target = targets[i] - state[i]
         
-        # CHANGED: Draw keypoints for this color with its specific color
-        if len(keypoints) > 0:
-            im_with_all_keypoints = cv2.drawKeypoints(
-                im_with_all_keypoints, 
-                keypoints, 
-                np.array([]), 
-                color_bgr_map[color_name], 
-                cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
-            )
+        # Check if target is on opposite side of center
+        # If dot product of position and target direction is negative, target is opposite side
+        if np.dot(state[i], robot_to_target) < -0.3:
+            # And if path goes near center (distance to center < 0.5)
+            if np.linalg.norm(state[i]) < 0.5:
+                crossing_robots.append(i)
+    
+    # 3. PRIORITIZE CROSSING ROBOTS (CRITICAL FIX)
+    # If we have multiple crossing robots, let them go one at a time
+    if len(crossing_robots) >= 2:
+        # Sort by distance to center - closest goes first
+        crossing_robots.sort(key=lambda i: np.linalg.norm(state[i]))
+        
+        # Let only the first 1-2 robots actively cross, others wait
+        for idx, i in enumerate(crossing_robots):
+            if idx == 0:
+                # First robot: full speed ahead
+                continue
+            elif idx == 1:
+                # Second robot: reduced speed to follow
+                continue
+            else:
+                # Other robots: significantly reduce goal attraction and wait
+                V[i] *= 0.3  # Reduce all velocities
+                # Add waiting behavior - move perpendicular to goal to get out of way
+                goal_dir = to_target[i] / (dist_to_target[i] + eps)
+                perp_dir = np.array([-goal_dir[1], goal_dir[0]])
+                V[i] += perp_dir * 0.1
+    
+    # 4. ROBOT-ROBOT REPULSION
+    min_pair_dist = 2.0 * r
+    
+    for i in range(n):
+        near_target_i = dist_to_target[i] < tol * 2
+        
+        for j in range(i+1, n):
+            near_target_j = dist_to_target[j] < tol * 2
             
-            # CHANGED: Convert to world coordinates and accumulate
-            for kp in keypoints:
-                x_w, y_w = IMG2W(kp.pt[0], kp.pt[1])
-                all_xw_yw.append((x_w, y_w))
-                all_keypoints.append(kp)
-
-    # CHANGED: Create combined mask for display (same as your original working code)
-    combined_mask = np.zeros_like(mask)
-    for color_name, (lower, upper) in color_ranges.items():
-        color_mask = cv2.inRange(hsv_image, lower, upper)
-        kernel = np.ones((7, 7), np.uint8)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_OPEN, kernel)
-        color_mask = cv2.morphologyEx(color_mask, cv2.MORPH_CLOSE, kernel)
-        combined_mask = cv2.bitwise_or(combined_mask, color_mask)
-
-
-    # CHANGED: Use the accumulated keypoints and world coordinates
-    if len(all_keypoints) == 0:
-        print("No blocks found!")
-    else:
-        print(f"Found {len(all_keypoints)} blocks total")
-    # ========================= Student's code ends here ===========================
-
-
-    cv2.namedWindow("Camera View")
-    cv2.imshow("Camera View", image_raw)
-    cv2.namedWindow("Mask View")
-    cv2.imshow("Mask View", combined_mask)
-    cv2.namedWindow("Keypoint View")
-    cv2.imshow("Keypoint View", im_with_all_keypoints)
-
-    cv2.waitKey(2)
-
-    # CHANGED: Return ALL world coordinates, not just for one color
-    return all_xw_yw
-
-
-
-lab5exec.py
-
-#!/usr/bin/env python
-
-import sys
-import copy
-import time
-import rospy
-
-import numpy as np
-from lab5_header import *
-from lab5_func import *
-from blob_search import *
-
-# ========================= Student's code starts here =========================
-
-# Position for UR3 not blocking the camera
-go_away = [270*PI/180.0, -90*PI/180.0, 90*PI/180.0,
-           -90*PI/180.0, -90*PI/180.0, 135*PI/180.0]
-
-# Store world coordinates of green and yellow blocks
-xw_yw_G = []
-xw_yw_Y = []
-
-# Drop-off target locations
-DROP_GREEN  = [0.30, -0.15, 0.02]
-DROP_YELLOW = [0.30,  0.15, 0.02]
-
-# Pick and safe heights
-BLOCK_Z     = 0.02
-SAFE_Z      = 0.15
-
-# ========================= Student's code ends here ===========================
-
-################ Pre-defined parameters and functions no need to change below ################
-
-# 20Hz
-SPIN_RATE = 20
-
-# UR3 home location
-home = [0*PI/180.0, 0*PI/180.0, 0*PI/180.0, 0*PI/180.0, 0*PI/180.0, 0*PI/180.0]
-
-# UR3 current position, using home position for initialization
-current_position = copy.deepcopy(home)
-
-thetas = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-digital_in_0 = 0
-analog_in_0 = 0.0
-
-suction_on = True
-suction_off = False
-
-current_io_0 = False
-current_position_set = False
-
-image_shape_define = False
-
-
-"""
-Whenever ur3/gripper_input publishes info this callback function is called.
-"""
-def input_callback(msg):
-
-    global digital_in_0
-    digital_in_0 = msg.DIGIN
-    digital_in_0 = digital_in_0 & 1 # Only look at least significant bit, meaning index 0
-
-
-"""
-Whenever ur3/position publishes info, this callback function is called.
-"""
-def position_callback(msg):
-
-    global thetas
-    global current_position
-    global current_position_set
-
-    thetas[0] = msg.position[0]
-    thetas[1] = msg.position[1]
-    thetas[2] = msg.position[2]
-    thetas[3] = msg.position[3]
-    thetas[4] = msg.position[4]
-    thetas[5] = msg.position[5]
-
-    current_position[0] = thetas[0]
-    current_position[1] = thetas[1]
-    current_position[2] = thetas[2]
-    current_position[3] = thetas[3]
-    current_position[4] = thetas[4]
-    current_position[5] = thetas[5]
-
-    current_position_set = True
-
-
-"""
-Function to control the suction cup on/off
-"""
-def gripper(pub_cmd, loop_rate, io_0):
-
-    global SPIN_RATE
-    global thetas
-    global current_io_0
-    global current_position
-
-    error = 0
-    spin_count = 0
-    at_goal = 0
-
-    current_io_0 = io_0
-
-    driver_msg = command()
-    driver_msg.destination = current_position
-    driver_msg.v = 1.0
-    driver_msg.a = 1.0
-    driver_msg.io_0 = io_0
-    pub_cmd.publish(driver_msg)
-
-    while(at_goal == 0):
-
-        if( abs(thetas[0]-driver_msg.destination[0]) < 0.0005 and \
-            abs(thetas[1]-driver_msg.destination[1]) < 0.0005 and \
-            abs(thetas[2]-driver_msg.destination[2]) < 0.0005 and \
-            abs(thetas[3]-driver_msg.destination[3]) < 0.0005 and \
-            abs(thetas[4]-driver_msg.destination[4]) < 0.0005 and \
-            abs(thetas[5]-driver_msg.destination[5]) < 0.0005 ):
-
-            #rospy.loginfo("Goal is reached!")
-            at_goal = 1
-
-        loop_rate.sleep()
-
-        if(spin_count >  SPIN_RATE*5):
-
-            pub_cmd.publish(driver_msg)
-            rospy.loginfo("Just published again driver_msg")
-            spin_count = 0
-
-        spin_count = spin_count + 1
-
-    return error
-
-
-"""
-Move robot arm from one position to another
-"""
-def move_arm(pub_cmd, loop_rate, dest, vel, accel):
-
-    global thetas
-    global SPIN_RATE
-
-    error = 0
-    spin_count = 0
-    at_goal = 0
-
-    driver_msg = command()
-    driver_msg.destination = dest
-    driver_msg.v = vel
-    driver_msg.a = accel
-    driver_msg.io_0 = current_io_0
-    pub_cmd.publish(driver_msg)
-
-    loop_rate.sleep()
-
-    while(at_goal == 0):
-
-        if( abs(thetas[0]-driver_msg.destination[0]) < 0.0005 and \
-            abs(thetas[1]-driver_msg.destination[1]) < 0.0005 and \
-            abs(thetas[2]-driver_msg.destination[2]) < 0.0005 and \
-            abs(thetas[3]-driver_msg.destination[3]) < 0.0005 and \
-            abs(thetas[4]-driver_msg.destination[4]) < 0.0005 and \
-            abs(thetas[5]-driver_msg.destination[5]) < 0.0005 ):
-
-            at_goal = 1
-            #rospy.loginfo("Goal is reached!")
-
-        loop_rate.sleep()
-
-        if(spin_count >  SPIN_RATE*5):
-
-            pub_cmd.publish(driver_msg)
-            rospy.loginfo("Just published again driver_msg")
-            spin_count = 0
-
-        spin_count = spin_count + 1
-
-    return error
-
-################ Pre-defined parameters and functions no need to change above ################
-
-
-def move_block(pub_cmd, loop_rate, start_xw_yw_zw, target_xw_yw_zw, vel, accel):
-
-    """
-    start_xw_yw_zw: (x, y, z) of block pickup in world coordinates
-    target_xw_yw_zw: (x, y, z) of block drop-off in world coordinates
-    """
-
-    # ========================= Student's code starts here =========================
-
-    global suction_on, suction_off, digital_in_0
-
-    error = 0
-
-    # ----------------- Extract coords -----------------
-    sx, sy, sz = start_xw_yw_zw   # pick location
-    tx, ty, tz = target_xw_yw_zw  # drop location
-
-    SAFE_Z = 0.15        # safe hover height
-    PICK_Z = sz          # usually ~0.02 m
-    PLACE_Z = tz         # usually ~0.02 m
-
-    # ----------------- IK for joint targets -----------------
-    # Above pick
-    q_above_pick = lab_invk(sx, sy, SAFE_Z, 0)
-    # Pick
-    q_pick = lab_invk(sx, sy, PICK_Z, 0)
-
-    # Above place
-    q_above_place = lab_invk(tx, ty, SAFE_Z, 0)
-    # Place
-    q_place = lab_invk(tx, ty, PLACE_Z, 0)
-
-    # ----------------- Motion sequence -----------------
-
-    # 1. Move above pickup location
-    error = move_arm(pub_cmd, loop_rate, q_above_pick, vel, accel)
-    if error != 0: return error
-
-    # 2. Move down to pickup
-    error = move_arm(pub_cmd, loop_rate, q_pick, vel/2, accel/2)
-    if error != 0: return error
-
-    # 3. Turn suction ON
-    gripper(pub_cmd, loop_rate, suction_on)
-    time.sleep(0.5)
-
-    # Suction feedback check (pickup)
-    if digital_in_0 != 1:
-        rospy.logerr("Suction error: No block detected at pickup!")
-        gripper(pub_cmd, loop_rate, suction_off)
-        return 2
-
-    # 4. Lift block
-    error = move_arm(pub_cmd, loop_rate, q_above_pick, vel, accel)
-    if error != 0: return error
-
-    # 5. Move above placement
-    error = move_arm(pub_cmd, loop_rate, q_above_place, vel, accel)
-    if error != 0: return error
-
-    # 6. Move down to placement
-    error = move_arm(pub_cmd, loop_rate, q_place, vel/2, accel/2)
-    if error != 0: return error
-
-    # 7. Release block
-    gripper(pub_cmd, loop_rate, suction_off)
-    time.sleep(0.5)
-
-    # Suction feedback check (release)
-    if digital_in_0 != 0:
-        rospy.logerr("Suction error: Block still attached after release!")
-        return 3
-
-    # 8. Lift up again
-    error = move_arm(pub_cmd, loop_rate, q_above_place, vel, accel)
-    if error != 0: return error
-
-    # ========================= Student's code ends here ===========================
-
-    return error
-
-
-
-class ImageConverter:
-
-    def __init__(self, SPIN_RATE):
-
-        self.bridge = CvBridge()
-        self.image_pub = rospy.Publisher("/image_converter/output_video", Image, queue_size=10)
-        self.image_sub = rospy.Subscriber("/cv_camera_node/image_raw", Image, self.image_callback)
-        self.loop_rate = rospy.Rate(SPIN_RATE)
-
-        # Check if ROS is ready for operation
-        while(rospy.is_shutdown()):
-            print("ROS is shutdown!")
-
-
-    def image_callback(self, data):
-
-        global xw_yw_G # store found green blocks in this list
-        global xw_yw_Y # store found yellow blocks in this list
-
-        try:
-          # Convert ROS image to OpenCV image
-            raw_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
-        except CvBridgeError as e:
-            print(e)
-
-        cv_image = cv2.flip(raw_image, -1)
-        cv2.line(cv_image, (0,50), (640,50), (0,0,0), 5)
-
-        # You will need to call blob_search() function to find centers of green blocks
-        # and yellow blocks, and store the centers in xw_yw_G & xw_yw_Y respectively.
-
-        # If no blocks are found for a particular color, you can return an empty list,
-        # to xw_yw_G or xw_yw_Y.
-
-        # Remember, xw_yw_G & xw_yw_Y are in global coordinates, which means you will
-        # do coordinate transformation in the blob_search() function, namely, from
-        # the image frame to the global world frame.
-
-        xw_yw_G = blob_search(cv_image, "green")
-        xw_yw_Y = blob_search(cv_image, "yellow")
-
-
-"""
-Program run from here
-"""
-def main():
-
-    global go_away
-    global xw_yw_Y
-    global xw_yw_G
-
-    # global variable1
-    # global variable2
-
-    # Initialize ROS node
-    rospy.init_node('lab5node')
-
-    # Initialize publisher for ur3/command with buffer size of 10
-    pub_command = rospy.Publisher('ur3/command', command, queue_size=10)
-
-    # Initialize subscriber to ur3/position & ur3/gripper_input and callback fuction
-    # each time data is published
-    sub_position = rospy.Subscriber('ur3/position', position, position_callback)
-    sub_input = rospy.Subscriber('ur3/gripper_input', gripper_input, input_callback)
-
-    # Check if ROS is ready for operation
-    while(rospy.is_shutdown()):
-        print("ROS is shutdown!")
-
-    # Initialize the rate to publish to ur3/command
-    loop_rate = rospy.Rate(SPIN_RATE)
-
-    vel = 4.0
-    accel = 4.0
-    move_arm(pub_command, loop_rate, go_away, vel, accel)
-
-    ic = ImageConverter(SPIN_RATE)
-    time.sleep(5)
-
-    # ========================= Student's code starts here =========================
+            diff = state[i] - state[j]
+            d = np.linalg.norm(diff) + eps
+            
+            # CRITICAL: Reduced repulsion for crossing robots near center
+            # This allows them to pass through narrow space
+            both_crossing = i in crossing_robots and j in crossing_robots
+            near_center = np.linalg.norm(state[i]) < 0.4 and np.linalg.norm(state[j]) < 0.4
+            
+            if both_crossing and near_center:
+                # Very gentle repulsion to allow passing
+                if d < min_pair_dist * 1.1:
+                    rep_strength = k_pair * 0.1 / ((d - min_pair_dist + 0.03) ** 2)
+                else:
+                    continue
+            elif near_target_i and near_target_j:
+                if d < min_pair_dist * 1.1:
+                    rep_strength = k_pair * 0.5 / ((d - min_pair_dist + 0.02) ** 2)
+                else:
+                    continue
+            else:
+                activation_dist = 3.5 * r
+                if d < activation_dist:
+                    rep_strength = k_pair / ((d - min_pair_dist + 0.05) ** 3)
+                else:
+                    continue
+            
+            rep = rep_strength * diff / d
+            V[i] += rep
+            V[j] -= rep
     
-    PICK_Z  = 0.02
-    PLACE_Z = 0.02
+    # 5. OBSTACLE AVOIDANCE - WITH CLEAR PASSAGEWAYS
+    for i in range(n):
+        near_target = dist_to_target[i] < tol * 3
+        pos = state[i]
+        
+        for obs in obstacles:
+            center = np.array(obs["center"])
+            radius = obs["radius"]
+            
+            diff = pos - center
+            d = np.linalg.norm(diff) + eps
+            min_clearance = radius + r + 0.005
+            
+            is_central_obstacle = np.linalg.norm(center) < 0.01
+            
+            # CRITICAL: Create passageways for crossing robots
+            if is_central_obstacle and i in crossing_robots:
+                # For crossing robots, we need clear paths through/around center
+                
+                # Check which side of the obstacle the target is on
+                target_vec = targets[i] - center
+                robot_vec = pos - center
+                
+                # Cross product to determine which way to go around
+                cross = np.cross([robot_vec[0], robot_vec[1], 0], 
+                                [target_vec[0], target_vec[1], 0])[2]
+                
+                # Create directional avoidance
+                if abs(cross) < 0.1:  # Target is nearly straight through
+                    # Go straight but with gentle guidance
+                    if d < min_clearance + 0.15:
+                        # Push robot slightly to the side based on its index
+                        side_dir = np.array([-diff[1], diff[0]])  # Perpendicular
+                        side_dir = side_dir / (np.linalg.norm(side_dir) + eps)
+                        # Even indices go one way, odd the other
+                        if i % 2 == 0:
+                            avoid_dir = (diff / d) + 0.3 * side_dir
+                        else:
+                            avoid_dir = (diff / d) - 0.3 * side_dir
+                        
+                        avoid_dir = avoid_dir / (np.linalg.norm(avoid_dir) + eps)
+                        rep_strength = k_obs * 0.5 / ((d - min_clearance + 0.05) ** 1.5)
+                        V[i] += rep_strength * avoid_dir
+                else:
+                    # Go around the obstacle
+                    tangent = np.array([-diff[1], diff[0]])
+                    tangent = tangent / (np.linalg.norm(tangent) + eps)
+                    
+                    # Choose direction that moves toward target
+                    if cross > 0:
+                        # Target is clockwise, go clockwise
+                        avoid_dir = tangent
+                    else:
+                        # Target is counter-clockwise
+                        avoid_dir = -tangent
+                    
+                    if d < min_clearance + 0.2:
+                        rep_strength = k_obs * 0.6 / ((d - min_clearance + 0.04) ** 1.5)
+                        V[i] += rep_strength * avoid_dir
+            
+            # Normal obstacle avoidance for non-crossing or non-central
+            elif is_central_obstacle:
+                if near_target:
+                    if d < min_clearance * 1.2:
+                        rep_strength = k_obs * 0.3 / ((d - min_clearance + 0.02) ** 1.5)
+                        V[i] += rep_strength * diff / d
+                else:
+                    if d < min_clearance + 0.2:
+                        if d < min_clearance * 1.05:
+                            rep_strength = k_obs * 2.0 / ((d - min_clearance + 0.01) ** 2.0)
+                        else:
+                            rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
+                        V[i] += rep_strength * diff / d
+            else:
+                if near_target:
+                    if d < min_clearance * 1.1:
+                        rep_strength = k_obs * 0.5 / ((d - min_clearance + 0.01) ** 2)
+                        V[i] += rep_strength * diff / d
+                else:
+                    if d < min_clearance + 0.15:
+                        rep_strength = k_obs / ((d - min_clearance + 0.03) ** 2)
+                        V[i] += rep_strength * diff / d
     
-    # ------------- WAIT FOR GREEN -------------
-    rospy.loginfo("Waiting for GREEN block...")
-    while len(xw_yw_G) == 0:
-        time.sleep(0.1)
+    # 6. BOUNDARY REPULSION
+    for i in range(n):
+        norm_pos = np.linalg.norm(state[i])
+        target_norm = np.linalg.norm(targets[i])
+        target_near_boundary = target_norm > 0.8
+        
+        if norm_pos > 0.85:
+            to_center = -state[i] / (norm_pos + eps)
+            
+            if target_near_boundary:
+                boundary_strength = k_wall * 0.5 * (norm_pos - 0.85) * 5.0
+            else:
+                if norm_pos > 0.95:
+                    boundary_strength = k_wall * 5.0 / ((1.0 - norm_pos + eps) ** 0.5)
+                elif norm_pos > 0.9:
+                    boundary_strength = k_wall * 2.0 / ((1.0 - norm_pos + eps) ** 0.3)
+                else:
+                    boundary_strength = k_wall * (norm_pos - 0.85) * 10.0
+            
+            V[i] += boundary_strength * to_center
     
-    # Green pick location
-    start_green = [xw_yw_G[0][0], xw_yw_G[0][1], PICK_Z]
+    # 7. FINAL VELOCITY ADJUSTMENTS
+    for i in range(n):
+        if dist_to_target[i] < tol * 2:
+            target_dir = to_target[i] / (dist_to_target[i] + eps)
+            strength = k_goal * 0.3 * (1.0 + 1.0 / (dist_to_target[i] + 0.01))
+            V[i] = target_dir * strength
+        elif dist_to_target[i] < tol * 10:
+            goal_component = to_target[i] / (dist_to_target[i] + eps) * k_goal * 0.2
+            V[i] = goal_component + V[i] * 0.5
     
-    # Move GREEN first
-    move_block(pub_command, loop_rate, start_green, DROP_GREEN, vel, accel)
+    # 8. VELOCITY SCALING
+    norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
     
-    # ------------- RE-DETECT YELLOW AFTER GREEN MOVED -------------
-    rospy.loginfo("Re-detecting YELLOW block...")
-    time.sleep(1.0)  # give camera time to refresh
+    for i in range(n):
+        if dist_to_target[i] < tol * 5:
+            min_velocity = 0.05
+            current_norm = norms[i, 0]
+            if current_norm < min_velocity:
+                scale = min_velocity / current_norm
+                V[i] *= scale
     
-    while len(xw_yw_Y) == 0:
-        rospy.loginfo("Waiting for YELLOW block...")
-        time.sleep(0.1)
+    max_velocity = 1.0
+    norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
+    scale = np.minimum(1.0, max_velocity / norms)
+    V = V * scale
     
-    # New yellow location
-    start_yellow = [xw_yw_Y[0][0], xw_yw_Y[0][1], PICK_Z]
+    V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
     
-    # Move YELLOW
-    move_block(pub_command, loop_rate, start_yellow, DROP_YELLOW, vel, accel)
-    
-    # ========================= Student's code ends here ===========================
-
-
-    move_arm(pub_command, loop_rate, go_away, vel, accel)
-    rospy.loginfo("Task Completed!")
-    print("Use Ctrl+C to exit program")
-    rospy.spin()
-
-if __name__ == '__main__':
-
-    try:
-        main()
-    # When Ctrl+C is executed, it catches the exception
-    except rospy.ROSInterruptException:
-        pass
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    return V
