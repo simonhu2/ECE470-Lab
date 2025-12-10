@@ -1,63 +1,72 @@
 n = state.shape[0]
     eps = 1e-12
     
-    # Tuned parameters
+    # Optimized parameters
     k_goal = 3.0
     k_pair = 0.012
     k_obs  = 0.018
     k_wall = 0.05
     
-    # Tolerance for reaching target (matches config.py tol=0.005)
     tol = 0.005
     
     V = np.zeros_like(state)
     
-    # 1. GOAL ATTRACTION - FIXED: Strong attraction even when close
+    # 1. GOAL ATTRACTION
     to_target = targets - state
     dist_to_target = np.linalg.norm(to_target, axis=1) + eps
     
     for i in range(n):
-        # Normalized direction to target
         dir_to_target = to_target[i] / dist_to_target[i]
         
-        # CRITICAL FIX: Use a function that doesn't go to zero near target
-        # When far: strong attraction
-        # When close: still strong enough to overcome repulsions
-        if dist_to_target[i] > tol * 3:  # > 0.015
-            # Moderate attraction
+        if dist_to_target[i] > tol * 3:
             attraction_strength = k_goal * np.tanh(dist_to_target[i] * 2.0)
-        elif dist_to_target[i] > tol:  # 0.005 - 0.015
-            # Maintain decent strength
+        elif dist_to_target[i] > tol:
             attraction_strength = k_goal * 0.1
-        else:  # < 0.005
-            # Still some attraction to ensure reaching tolerance
+        else:
             attraction_strength = k_goal * 0.05
         
         V[i] += attraction_strength * dir_to_target
     
-    # 2. ROBOT-ROBOT REPULSION - Reduced near targets
+    # 2. DETECT CROSSING ROBOTS
+    crossing_robots = []
+    for i in range(n):
+        # Only consider robots that are far from target and near center
+        if dist_to_target[i] > 0.1 and np.linalg.norm(state[i]) < 0.4:
+            # Check if target is on opposite side of center
+            robot_to_target = targets[i] - state[i]
+            if np.dot(state[i], robot_to_target) < 0:
+                crossing_robots.append(i)
+    
+    # 3. ROBOT-ROBOT REPULSION - CRITICAL FIX: STRONGER WHEN CLOSE, WEAKER WHEN MODERATE
     min_pair_dist = 2.0 * r
     
     for i in range(n):
-        # Check if robot is very close to its target
         near_target_i = dist_to_target[i] < tol * 2
         
         for j in range(i+1, n):
-            # Check if other robot is very close to its target
             near_target_j = dist_to_target[j] < tol * 2
             
             diff = state[i] - state[j]
             d = np.linalg.norm(diff) + eps
             
-            # If both robots are near their targets, reduce repulsion
-            if near_target_i and near_target_j:
-                # Only repel if dangerously close
+            # Check if both are crossing robots and near center
+            both_crossing = i in crossing_robots and j in crossing_robots
+            near_center = np.linalg.norm(state[i]) < 0.4 and np.linalg.norm(state[j]) < 0.4
+            
+            if both_crossing and near_center:
+                # For crossing robots near center: strong repulsion when very close, moderate when moderate
+                if d < min_pair_dist * 1.05:  # VERY CLOSE: Strong repulsion to prevent collision
+                    rep_strength = k_pair * 2.0 / ((d - min_pair_dist + 0.01) ** 2)
+                elif d < min_pair_dist * 1.5:  # MODERATE: Weaker repulsion to allow passing
+                    rep_strength = k_pair * 0.3 / ((d - min_pair_dist + 0.03) ** 2)
+                else:
+                    continue
+            elif near_target_i and near_target_j:
                 if d < min_pair_dist * 1.1:
                     rep_strength = k_pair * 0.5 / ((d - min_pair_dist + 0.02) ** 2)
                 else:
                     continue
             else:
-                # Normal repulsion
                 activation_dist = 3.5 * r
                 if d < activation_dist:
                     rep_strength = k_pair / ((d - min_pair_dist + 0.05) ** 3)
@@ -68,11 +77,9 @@ n = state.shape[0]
             V[i] += rep
             V[j] -= rep
     
-    # 3. OBSTACLE AVOIDANCE - FIXED: Stronger central obstacle avoidance when close
+    # 4. OBSTACLE AVOIDANCE
     for i in range(n):
-        # Check if robot is very close to its target
         near_target = dist_to_target[i] < tol * 3
-        
         pos = state[i]
         
         for obs in obstacles:
@@ -83,62 +90,88 @@ n = state.shape[0]
             d = np.linalg.norm(diff) + eps
             min_clearance = radius + r + 0.005
             
-            # CRITICAL FIX: Special handling for central obstacle (0,0)
-            is_central_obstacle = np.linalg.norm(center) < 0.01  # At (0,0)
+            is_central_obstacle = np.linalg.norm(center) < 0.01
             
             if is_central_obstacle:
-                # For central obstacle, use wider activation but strong repulsion when close
-                # This helps robots pass through the center area without getting stuck
                 if near_target:
-                    # When near target, minimal avoidance of central obstacle
                     if d < min_clearance * 1.2:
                         rep_strength = k_obs * 0.3 / ((d - min_clearance + 0.02) ** 1.5)
-                    else:
-                        continue
+                        V[i] += rep_strength * diff / d
                 else:
-                    # Wider activation zone for central obstacle
-                    if d < min_clearance + 0.2:  # Increased from 0.15
-                        # TWEAKED: Stronger repulsion when very close to prevent collisions
-                        if d < min_clearance * 1.05:  # Very close - strong repulsion
-                            rep_strength = k_obs * 2.0 / ((d - min_clearance + 0.01) ** 2.0)
-                        else:  # In the wider activation zone - moderate repulsion
-                            rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
+                    # For crossing robots at central obstacle, use directional guidance
+                    if i in crossing_robots and d < min_clearance + 0.25:
+                        # Create a path around the obstacle based on robot index
+                        tangent = np.array([-diff[1], diff[0]])
+                        tangent = tangent / (np.linalg.norm(tangent) + eps)
+                        
+                        # Even indices go one way, odd indices the other
+                        if i % 2 == 0:
+                            avoid_dir = (diff / d) * 0.5 + tangent * 0.5
+                        else:
+                            avoid_dir = (diff / d) * 0.5 - tangent * 0.5
+                        
+                        avoid_dir = avoid_dir / (np.linalg.norm(avoid_dir) + eps)
+                        
+                        if d < min_clearance * 1.1:  # Very close: stronger repulsion
+                            rep_strength = k_obs * 1.5 / ((d - min_clearance + 0.02) ** 1.8)
+                        else:  # Moderate distance: guide around
+                            rep_strength = k_obs * 0.6 / ((d - min_clearance + 0.05) ** 1.5)
+                        
+                        V[i] += rep_strength * avoid_dir
                     else:
-                        continue
+                        # Normal central obstacle handling
+                        if d < min_clearance + 0.2:
+                            if d < min_clearance * 1.05:
+                                rep_strength = k_obs * 2.0 / ((d - min_clearance + 0.01) ** 2.0)
+                            else:
+                                rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
+                            V[i] += rep_strength * diff / d
             else:
-                # Normal obstacles (non-central)
                 if near_target:
-                    # Only avoid if very close to obstacle
                     if d < min_clearance * 1.1:
                         rep_strength = k_obs * 0.5 / ((d - min_clearance + 0.01) ** 2)
-                    else:
-                        continue
+                        V[i] += rep_strength * diff / d
                 else:
-                    # Normal obstacle avoidance
                     if d < min_clearance + 0.15:
                         rep_strength = k_obs / ((d - min_clearance + 0.03) ** 2)
-                    else:
-                        continue
-            
-            V[i] += rep_strength * diff / d
+                        V[i] += rep_strength * diff / d
     
-    # 4. BOUNDARY REPULSION - Reduced near boundary targets
+    # 5. FINAL PUSH FOR ROBOTS THAT ARE STUCK
+    for i in range(n):
+        # If robot is very close to target but not quite there, give it a final push
+        if tol < dist_to_target[i] < tol * 3:
+            # Strong direct attraction to overcome any remaining repulsion
+            target_dir = to_target[i] / (dist_to_target[i] + eps)
+            final_push = target_dir * k_goal * 0.4
+            V[i] += final_push
+        
+        # If robot has very low velocity near center (might be stuck)
+        if (np.linalg.norm(V[i]) < 0.005 and 
+            np.linalg.norm(state[i]) < 0.3 and 
+            dist_to_target[i] > 0.02):
+            
+            # Add a small random perturbation to break symmetry
+            # Use deterministic "random" based on robot index to avoid actual randomness
+            angle = (i * 137.5) % 360  # Golden angle for good distribution
+            perturb = np.array([np.cos(np.radians(angle)), np.sin(np.radians(angle))]) * 0.01
+            V[i] += perturb
+            
+            # Also reinforce goal direction
+            goal_dir = to_target[i] / (dist_to_target[i] + eps)
+            V[i] += goal_dir * k_goal * 0.2
+    
+    # 6. BOUNDARY REPULSION
     for i in range(n):
         norm_pos = np.linalg.norm(state[i])
-        
-        # Check if robot's target is near boundary
         target_norm = np.linalg.norm(targets[i])
         target_near_boundary = target_norm > 0.8
         
         if norm_pos > 0.85:
             to_center = -state[i] / (norm_pos + eps)
             
-            # If target is near boundary, reduce boundary repulsion
             if target_near_boundary:
-                # Gentle guidance only
                 boundary_strength = k_wall * 0.5 * (norm_pos - 0.85) * 5.0
             else:
-                # Normal boundary repulsion
                 if norm_pos > 0.95:
                     boundary_strength = k_wall * 5.0 / ((1.0 - norm_pos + eps) ** 0.5)
                 elif norm_pos > 0.9:
@@ -148,59 +181,33 @@ n = state.shape[0]
             
             V[i] += boundary_strength * to_center
     
-    # 5. SPECIAL FIX: Additional guidance for robots stuck near central obstacle
-    # If multiple robots are near center and not making progress, give them a nudge
+    # 7. FINAL VELOCITY ADJUSTMENTS
     for i in range(n):
-        norm_pos = np.linalg.norm(state[i])
-        
-        # Check if robot is near center (within 0.3 of origin) and not near target
-        near_center = norm_pos < 0.3
-        if near_center and dist_to_target[i] > tol * 5:  # Not close to target
-            # Check if robot is making slow progress
-            if np.linalg.norm(V[i]) < 0.02:  # Moving very slowly
-                # Give a stronger push toward target
-                target_dir = to_target[i] / (dist_to_target[i] + eps)
-                # Add extra push in target direction
-                extra_push = target_dir * k_goal * 0.4
-                V[i] += extra_push
-    
-    # 6. FINAL VELOCITY ADJUSTMENT - Critical for reaching targets
-    for i in range(n):
-        # When very close to target, focus ONLY on reaching it
-        if dist_to_target[i] < tol * 2:  # < 0.01
-            # Strong direct attraction to target, ignore other forces
+        if dist_to_target[i] < tol * 2:
+            # When very close to target, focus only on reaching it
             target_dir = to_target[i] / (dist_to_target[i] + eps)
-            # Scale based on how close we are
-            strength = k_goal * 0.3 * (1.0 + 1.0 / (dist_to_target[i] + 0.01))
+            strength = k_goal * 0.4 * (1.0 + 1.0 / (dist_to_target[i] + 0.01))
             V[i] = target_dir * strength
-        
-        # When moderately close, balance forces
-        elif dist_to_target[i] < tol * 10:  # < 0.05
-            # Still prioritize goal, but consider other factors
-            goal_component = to_target[i] / (dist_to_target[i] + eps) * k_goal * 0.2
-            # Reduce existing forces by 50%
-            V[i] = goal_component + V[i] * 0.5
     
-    # 7. VELOCITY SCALING - Ensure enough velocity when close to target
+    # 8. VELOCITY SCALING AND SAFETY
     norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
     
-    # Scale based on distance to target
+    # Ensure minimum velocity when close to target
     for i in range(n):
-        if dist_to_target[i] < tol * 5:  # < 0.025
-            # When close to target, ensure minimum velocity
-            min_velocity = 0.05  # Small but enough to reach target
+        if dist_to_target[i] < tol * 5:
+            min_velocity = 0.03  # Reduced from 0.05 to allow finer control
             current_norm = norms[i, 0]
             if current_norm < min_velocity:
                 scale = min_velocity / current_norm
                 V[i] *= scale
     
-    # Soft cap to prevent extreme velocities
+    # Soft cap
     max_velocity = 1.0
     norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
     scale = np.minimum(1.0, max_velocity / norms)
     V = V * scale
     
-    # Ensure no NaN or Inf
+    # Final safety check
     V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
     
     return V
