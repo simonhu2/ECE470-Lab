@@ -1,213 +1,83 @@
-n = state.shape[0]
-    eps = 1e-12
+import argparse, importlib, os, json, csv 
+import numpy as np
+
+from envelope.simulate import evaluate_all_permutations
+
+def load_student_compute():
+    mod = importlib.import_module("student_code.my_nav_fn")
+    if not hasattr(mod, "compute_gradients"):
+        raise RuntimeError("student_code.my_nav_fn must define compute_gradients(...)")
+    return mod.compute_gradients
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--n", type=int, default=5)
+    p.add_argument("--r", type=float, default=0.05)
+    p.add_argument("--dt", type=float, default=0.005)
+    p.add_argument("--vmax", type=float, default=0.05)
+    p.add_argument("--tol", type=float, default=0.005)
+    p.add_argument("--max_steps", type=int, default=30000)
+    args = p.parse_args()
+
+    compute = load_student_compute()
+    results = evaluate_all_permutations(
+        compute_gradients_fn=compute,
+        n=args.n, r=args.r, dt=args.dt, vmax=args.vmax, tol=args.tol, max_steps=args.max_steps
+    )
+    # print(json.dumps(results, indent=2))
+    print(f"Summary CSV: {results['csv']}")
+    if results["disqualified"]:
+        print("NOTE: at least one permutation failed.")
     
-    # Optimized parameters
-    k_goal = 3.0
-    k_pair = 0.012
-    k_obs  = 0.018
-    k_wall = 0.05
+    # Additional information
+    csv_path = results['csv']
+    steps_list = []
+    successes = 0
     
-    tol = 0.005
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            if row['success'].lower() == 'true':
+                successes += 1
+                steps_list.append(int(row['steps']))
     
-    V = np.zeros_like(state)
-    
-    # 1. GOAL ATTRACTION
-    to_target = targets - state
-    dist_to_target = np.linalg.norm(to_target, axis=1) + eps
-    
-    for i in range(n):
-        dir_to_target = to_target[i] / dist_to_target[i]
+    if successes > 0:
+        min_steps = min(steps_list)
+        max_steps = max(steps_list)
+        avg_steps = sum(steps_list) / successes
         
-        if dist_to_target[i] > tol * 3:
-            attraction_strength = k_goal * np.tanh(dist_to_target[i] * 2.0)
-        elif dist_to_target[i] > tol:
-            attraction_strength = k_goal * 0.1
-        else:
-            attraction_strength = k_goal * 0.05
+        print("\n=== Statistics ===")
+        print(f"Success rate: {successes}/120 ({successes/120*100:.1f}%)")
+        print(f"Minimum steps (successful runs): {min_steps}")
+        print(f"Average steps (successful runs): {avg_steps:.1f}")
+        print(f"Maximum steps (successful runs): {max_steps}")
+        print(f"Standard deviation: {np.std(steps_list):.1f}")
         
-        V[i] += attraction_strength * dir_to_target
-    
-    # 2. DETECT CROSSING ROBOTS
-    crossing_robots = []
-    for i in range(n):
-        # Only consider robots that are far from target and near center
-        if dist_to_target[i] > 0.1 and np.linalg.norm(state[i]) < 0.4:
-            # Check if target is on opposite side of center
-            robot_to_target = targets[i] - state[i]
-            if np.dot(state[i], robot_to_target) < 0:
-                crossing_robots.append(i)
-    
-    # 3. ROBOT-ROBOT REPULSION - CRITICAL FIX: STRONGER WHEN CLOSE, WEAKER WHEN MODERATE
-    min_pair_dist = 2.0 * r
-    
-    for i in range(n):
-        near_target_i = dist_to_target[i] < tol * 2
+        # Additional statistics
+        print(f"Steps < 5000: {sum(1 for s in steps_list if s < 5000)} runs")
+        print(f"Steps 5000-10000: {sum(1 for s in steps_list if 5000 <= s < 10000)} runs")
+        print(f"Steps 10000-15000: {sum(1 for s in steps_list if 10000 <= s < 15000)} runs")
+        print(f"Steps ≥ 15000: {sum(1 for s in steps_list if s >= 15000)} runs")
         
-        for j in range(i+1, n):
-            near_target_j = dist_to_target[j] < tol * 2
-            
-            diff = state[i] - state[j]
-            d = np.linalg.norm(diff) + eps
-            
-            # Check if both are crossing robots and near center
-            both_crossing = i in crossing_robots and j in crossing_robots
-            near_center = np.linalg.norm(state[i]) < 0.4 and np.linalg.norm(state[j]) < 0.4
-            
-            if both_crossing and near_center:
-                # For crossing robots near center: strong repulsion when very close, moderate when moderate
-                if d < min_pair_dist * 1.05:  # VERY CLOSE: Strong repulsion to prevent collision
-                    rep_strength = k_pair * 2.0 / ((d - min_pair_dist + 0.01) ** 2)
-                elif d < min_pair_dist * 1.5:  # MODERATE: Weaker repulsion to allow passing
-                    rep_strength = k_pair * 0.3 / ((d - min_pair_dist + 0.03) ** 2)
-                else:
-                    continue
-            elif near_target_i and near_target_j:
-                if d < min_pair_dist * 1.1:
-                    rep_strength = k_pair * 0.5 / ((d - min_pair_dist + 0.02) ** 2)
-                else:
-                    continue
-            else:
-                activation_dist = 3.5 * r
-                if d < activation_dist:
-                    rep_strength = k_pair / ((d - min_pair_dist + 0.05) ** 3)
-                else:
-                    continue
-            
-            rep = rep_strength * diff / d
-            V[i] += rep
-            V[j] -= rep
-    
-    # 4. OBSTACLE AVOIDANCE
-    for i in range(n):
-        near_target = dist_to_target[i] < tol * 3
-        pos = state[i]
+        # Show the permutation with maximum steps
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['success'].lower() == 'true' and int(row['steps']) == max_steps:
+                    print(f"\nSlowest permutation: #{row['perm_idx']} with {max_steps} steps")
+                    print(f"Permutation: {row['sigma']}")
+                    break
         
-        for obs in obstacles:
-            center = np.array(obs["center"])
-            radius = obs["radius"]
-            
-            diff = pos - center
-            d = np.linalg.norm(diff) + eps
-            min_clearance = radius + r + 0.005
-            
-            is_central_obstacle = np.linalg.norm(center) < 0.01
-            
-            if is_central_obstacle:
-                if near_target:
-                    if d < min_clearance * 1.2:
-                        rep_strength = k_obs * 0.3 / ((d - min_clearance + 0.02) ** 1.5)
-                        V[i] += rep_strength * diff / d
-                else:
-                    # For crossing robots at central obstacle, use directional guidance
-                    if i in crossing_robots and d < min_clearance + 0.25:
-                        # Create a path around the obstacle based on robot index
-                        tangent = np.array([-diff[1], diff[0]])
-                        tangent = tangent / (np.linalg.norm(tangent) + eps)
-                        
-                        # Even indices go one way, odd indices the other
-                        if i % 2 == 0:
-                            avoid_dir = (diff / d) * 0.5 + tangent * 0.5
-                        else:
-                            avoid_dir = (diff / d) * 0.5 - tangent * 0.5
-                        
-                        avoid_dir = avoid_dir / (np.linalg.norm(avoid_dir) + eps)
-                        
-                        if d < min_clearance * 1.1:  # Very close: stronger repulsion
-                            rep_strength = k_obs * 1.5 / ((d - min_clearance + 0.02) ** 1.8)
-                        else:  # Moderate distance: guide around
-                            rep_strength = k_obs * 0.6 / ((d - min_clearance + 0.05) ** 1.5)
-                        
-                        V[i] += rep_strength * avoid_dir
-                    else:
-                        # Normal central obstacle handling
-                        if d < min_clearance + 0.2:
-                            if d < min_clearance * 1.05:
-                                rep_strength = k_obs * 2.0 / ((d - min_clearance + 0.01) ** 2.0)
-                            else:
-                                rep_strength = k_obs * 0.8 / ((d - min_clearance + 0.05) ** 1.8)
-                            V[i] += rep_strength * diff / d
-            else:
-                if near_target:
-                    if d < min_clearance * 1.1:
-                        rep_strength = k_obs * 0.5 / ((d - min_clearance + 0.01) ** 2)
-                        V[i] += rep_strength * diff / d
-                else:
-                    if d < min_clearance + 0.15:
-                        rep_strength = k_obs / ((d - min_clearance + 0.03) ** 2)
-                        V[i] += rep_strength * diff / d
-    
-    # 5. FINAL PUSH FOR ROBOTS THAT ARE STUCK
-    for i in range(n):
-        # If robot is very close to target but not quite there, give it a final push
-        if tol < dist_to_target[i] < tol * 3:
-            # Strong direct attraction to overcome any remaining repulsion
-            target_dir = to_target[i] / (dist_to_target[i] + eps)
-            final_push = target_dir * k_goal * 0.4
-            V[i] += final_push
-        
-        # If robot has very low velocity near center (might be stuck)
-        if (np.linalg.norm(V[i]) < 0.005 and 
-            np.linalg.norm(state[i]) < 0.3 and 
-            dist_to_target[i] > 0.02):
-            
-            # Add a small random perturbation to break symmetry
-            # Use deterministic "random" based on robot index to avoid actual randomness
-            angle = (i * 137.5) % 360  # Golden angle for good distribution
-            perturb = np.array([np.cos(np.radians(angle)), np.sin(np.radians(angle))]) * 0.01
-            V[i] += perturb
-            
-            # Also reinforce goal direction
-            goal_dir = to_target[i] / (dist_to_target[i] + eps)
-            V[i] += goal_dir * k_goal * 0.2
-    
-    # 6. BOUNDARY REPULSION
-    for i in range(n):
-        norm_pos = np.linalg.norm(state[i])
-        target_norm = np.linalg.norm(targets[i])
-        target_near_boundary = target_norm > 0.8
-        
-        if norm_pos > 0.85:
-            to_center = -state[i] / (norm_pos + eps)
-            
-            if target_near_boundary:
-                boundary_strength = k_wall * 0.5 * (norm_pos - 0.85) * 5.0
-            else:
-                if norm_pos > 0.95:
-                    boundary_strength = k_wall * 5.0 / ((1.0 - norm_pos + eps) ** 0.5)
-                elif norm_pos > 0.9:
-                    boundary_strength = k_wall * 2.0 / ((1.0 - norm_pos + eps) ** 0.3)
-                else:
-                    boundary_strength = k_wall * (norm_pos - 0.85) * 10.0
-            
-            V[i] += boundary_strength * to_center
-    
-    # 7. FINAL VELOCITY ADJUSTMENTS
-    for i in range(n):
-        if dist_to_target[i] < tol * 2:
-            # When very close to target, focus only on reaching it
-            target_dir = to_target[i] / (dist_to_target[i] + eps)
-            strength = k_goal * 0.4 * (1.0 + 1.0 / (dist_to_target[i] + 0.01))
-            V[i] = target_dir * strength
-    
-    # 8. VELOCITY SCALING AND SAFETY
-    norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
-    
-    # Ensure minimum velocity when close to target
-    for i in range(n):
-        if dist_to_target[i] < tol * 5:
-            min_velocity = 0.03  # Reduced from 0.05 to allow finer control
-            current_norm = norms[i, 0]
-            if current_norm < min_velocity:
-                scale = min_velocity / current_norm
-                V[i] *= scale
-    
-    # Soft cap
-    max_velocity = 1.0
-    norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
-    scale = np.minimum(1.0, max_velocity / norms)
-    V = V * scale
-    
-    # Final safety check
-    V = np.nan_to_num(V, nan=0.0, posinf=0.0, neginf=0.0)
-    
-    return V
+        # Show the permutation with minimum steps
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row['success'].lower() == 'true' and int(row['steps']) == min_steps:
+                    print(f"Fastest permutation: #{row['perm_idx']} with {min_steps} steps")
+                    print(f"Permutation: {row['sigma']}")
+                    break
+    else:
+        print("\nNo successful runs to analyze.")
+
+if __name__ == "__main__":
+    main()
