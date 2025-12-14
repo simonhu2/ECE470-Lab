@@ -41,7 +41,7 @@ def compute_gradients(state, targets, obstacles, r):
     n = state.shape[0]
     eps = 1e-12
     
-    # Optimized parameters
+    #Parameters
     k_goal = 3.0
     k_pair = 0.012
     k_obs  = 0.018
@@ -51,7 +51,7 @@ def compute_gradients(state, targets, obstacles, r):
     
     V = np.zeros_like(state)
     
-    # 1. GOAL ATTRACTION
+    #Goal Attraction
     to_target = targets - state
     dist_to_target = np.linalg.norm(to_target, axis=1) + eps
     
@@ -67,40 +67,30 @@ def compute_gradients(state, targets, obstacles, r):
         
         V[i] += attraction_strength * dir_to_target
     
-    # 2. IDENTIFY MIRRORED SWAPPING ROBOTS (SPECIFIC TO PERMUTATIONS 63, 87)
-    # These are robots that need to swap positions through the center
+    #Identify Swapped Pairs for Permutation 63, 87, 100, and 101
     
     swapping_pairs = []
     for i in range(n):
         for j in range(i+1, n):
-            # Check if robots are on opposite sides
             dot_pos = np.dot(state[i], state[j])
             
-            # Check if their targets are also on opposite sides AND swapped
-            # i.e., robot i's target is near robot j's position and vice versa
             dist_i_to_target_j = np.linalg.norm(state[i] - targets[j])
             dist_j_to_target_i = np.linalg.norm(state[j] - targets[i])
             
-            # If targets are closer to the other robot than their own, they need to swap
+            #If targets are closer to the other robot than their own, they need to swap
             need_to_swap = (dist_i_to_target_j < np.linalg.norm(state[i] - targets[i]) * 0.8 and
                            dist_j_to_target_i < np.linalg.norm(state[j] - targets[j]) * 0.8)
             
             if dot_pos < -0.3 and need_to_swap:
-                # Both near center and moving slowly?
                 if (np.linalg.norm(state[i]) < 0.4 and 
                     np.linalg.norm(state[j]) < 0.4 and
                     np.linalg.norm(V[i]) < 0.02 and
                     np.linalg.norm(V[j]) < 0.02):
                     swapping_pairs.append((i, j))
     
-    # 3. IMPLEMENT ONE-WAY SYSTEM FOR SWAPPING PAIRS
-    # This is the CRITICAL FIX for permutations 63 and 87
+    #Swapping Robot Pairs
     for i, j in swapping_pairs:
-        # Determine which robot should go first
-        # The robot that's closer to a clear path goes first
-        
-        # Check which robot has a clearer path to its target
-        # by checking obstacle proximity
+        #The robot that's closer to a clear path goes first
         i_obstacle_blocked = False
         j_obstacle_blocked = False
         
@@ -108,12 +98,10 @@ def compute_gradients(state, targets, obstacles, r):
             center = np.array(obs["center"])
             radius = obs["radius"]
             
-            # Vector from robot to target
+            #Vector from robot to target
             i_to_target = targets[i] - state[i]
             j_to_target = targets[j] - state[j]
             
-            # Check if obstacle lies between robot and target
-            # Simplified: check if robot-target line passes close to obstacle
             i_dist_to_obs = np.linalg.norm(state[i] - center)
             j_dist_to_obs = np.linalg.norm(state[j] - center)
             
@@ -122,52 +110,42 @@ def compute_gradients(state, targets, obstacles, r):
             if j_dist_to_obs < radius + 0.2:
                 j_obstacle_blocked = True
         
-        # Robot with clearer path OR closer to center goes first
-        # Also consider which robot is moving toward the center vs away
+        #Robot with clearer path OR closer to center goes first
         i_toward_center = np.dot(state[i], to_target[i]) < 0
         j_toward_center = np.dot(state[j], to_target[j]) < 0
         
         if i_toward_center and not j_toward_center:
-            # i is moving toward center, j is moving away
-            # Let i go first, j yields
+            #Let i go first, j yields
             first, second = i, j
         elif j_toward_center and not i_toward_center:
             first, second = j, i
         elif np.linalg.norm(state[i]) < np.linalg.norm(state[j]):
-            # i is closer to center, goes first
+            #i is closer to center, goes first
             first, second = i, j
         else:
             first, second = j, i
         
-        # Apply one-way system:
-        # First robot gets strong goal attraction and right-of-way
-        # Second robot yields by moving perpendicular and reducing goal attraction
-        
-        # For first robot: full speed ahead
+        #First robot gets to move first
         goal_dir_first = to_target[first] / (dist_to_target[first] + eps)
-        V[first] += goal_dir_first * k_goal * 0.8  # Very strong goal force
+        V[first] += goal_dir_first * k_goal * 0.8
         
-        # For second robot: yield by moving perpendicular to goal
+        #Second robot yields by moving perpendicular to goal
         goal_dir_second = to_target[second] / (dist_to_target[second] + eps)
         perp_dir = np.array([-goal_dir_second[1], goal_dir_second[0]])
         
-        # Move perpendicular to get out of the way
         V[second] += perp_dir * 0.1
+        V[second] *= 0.4
         
-        # Reduce goal attraction for yielding robot
-        V[second] *= 0.4  # Reduce existing velocities
-        
-        # Add slight goal attraction so it doesn't stop completely
         V[second] += goal_dir_second * k_goal * 0.2
     
-    # 4. ROBOT-ROBOT REPULSION (normal for non-swapping robots)
+    #Inter-Robot Repulsion
     min_pair_dist = 2.0 * r
     
     for i in range(n):
         near_target_i = dist_to_target[i] < tol * 2
         
         for j in range(i+1, n):
-            # Skip if this is a swapping pair (already handled)
+            #Skip if this is a swapping pair
             if (i, j) in swapping_pairs or (j, i) in swapping_pairs:
                 continue
                 
@@ -176,7 +154,6 @@ def compute_gradients(state, targets, obstacles, r):
             diff = state[i] - state[j]
             d = np.linalg.norm(diff) + eps
             
-            # Check if both near center
             near_center = np.linalg.norm(state[i]) < 0.4 and np.linalg.norm(state[j]) < 0.4
             
             if near_center:
@@ -202,15 +179,14 @@ def compute_gradients(state, targets, obstacles, r):
             V[i] += rep
             V[j] -= rep
     
-    # 5. OBSTACLE AVOIDANCE - with clear lanes for first robot in swapping pairs
+    #Obstacle Avoidance
     for i in range(n):
         near_target = dist_to_target[i] < tol * 3
         pos = state[i]
         
-        # Check if this robot is first in a swapping pair
         is_first_in_pair = False
         for pair in swapping_pairs:
-            if i == pair[0]:  # First in the pair
+            if i == pair[0]:
                 is_first_in_pair = True
                 break
         
@@ -230,18 +206,16 @@ def compute_gradients(state, targets, obstacles, r):
                         rep_strength = k_obs * 0.3 / ((d - min_clearance + 0.02) ** 1.5)
                         V[i] += rep_strength * diff / d
                 else:
-                    # SPECIAL: For first robot in swapping pair, create a clear path
+                    #For first robot in swapping pair, create a clear path
                     if is_first_in_pair and d < min_clearance + 0.25:
-                        # Give a clear tangential path around the obstacle
                         tangent = np.array([-diff[1], diff[0]])
                         tangent = tangent / (np.linalg.norm(tangent) + eps)
                         
-                        # Determine direction based on target position
+                        #Determine direction based on target position
                         to_target_dir = to_target[i] / (dist_to_target[i] + eps)
                         cross = np.cross([diff[0], diff[1], 0], 
                                         [to_target_dir[0], to_target_dir[1], 0])[2]
                         
-                        # Go the shorter way around
                         if cross > 0:
                             avoid_dir = tangent  # Clockwise
                         else:
@@ -250,7 +224,7 @@ def compute_gradients(state, targets, obstacles, r):
                         avoid_strength = k_obs * 0.5 / ((d - min_clearance + 0.04) ** 1.5)
                         V[i] += avoid_strength * avoid_dir
                     else:
-                        # Normal central obstacle handling
+                        #Normal central obstacle handling
                         if d < min_clearance + 0.2:
                             if d < min_clearance * 1.05:
                                 rep_strength = k_obs * 2.0 / ((d - min_clearance + 0.01) ** 2.0)
@@ -267,35 +241,32 @@ def compute_gradients(state, targets, obstacles, r):
                         rep_strength = k_obs / ((d - min_clearance + 0.03) ** 2)
                         V[i] += rep_strength * diff / d
     
-    # 6. AGGRESSIVE PROGRESS ENFORCEMENT FOR SWAPPING ROBOTS
-    # This ensures the first robot actually makes progress
+    #Eensures the first robot actually makes progress
     for i, j in swapping_pairs:
-        first, second = i, j  # Assuming i is first (simplified)
+        first, second = i, j 
         
-        # Check if first robot is making progress
+        #Check if first robot is making progress
         if np.linalg.norm(V[first]) < 0.01:
-            # Give it a very strong push
             goal_dir = to_target[first] / (dist_to_target[first] + eps)
-            V[first] += goal_dir * k_goal * 1.0  # Maximum push
+            V[first] += goal_dir * k_goal * 1.0
         
-        # After first robot has moved away, let second robot go
-        # Check distance between them
+        #After first robot has moved away, let second robot go
         diff = state[first] - state[second]
         d = np.linalg.norm(diff)
         
         if d > min_pair_dist * 2.0:  # First robot has cleared the way
-            # Let second robot resume normal motion
+            #Let second robot resume normal motion
             goal_dir = to_target[second] / (dist_to_target[second] + eps)
             V[second] += goal_dir * k_goal * 0.6
     
-    # 7. FINAL PUSH FOR ALL ROBOTS CLOSE TO TARGETS
+    #Final Push Towards Targets
     for i in range(n):
         if tol < dist_to_target[i] < tol * 3:
             target_dir = to_target[i] / (dist_to_target[i] + eps)
             final_push = target_dir * k_goal * 0.5
             V[i] += final_push
     
-    # 8. BOUNDARY REPULSION
+    #Boundary Repulsion
     for i in range(n):
         norm_pos = np.linalg.norm(state[i])
         target_norm = np.linalg.norm(targets[i])
@@ -316,14 +287,14 @@ def compute_gradients(state, targets, obstacles, r):
             
             V[i] += boundary_strength * to_center
     
-    # 9. FINAL VELOCITY ADJUSTMENTS
+    #Final Velocity Adjustments
     for i in range(n):
         if dist_to_target[i] < tol * 2:
             target_dir = to_target[i] / (dist_to_target[i] + eps)
             strength = k_goal * 0.5 * (1.0 + 1.0 / (dist_to_target[i] + 0.01))
             V[i] = target_dir * strength
     
-    # 10. VELOCITY SCALING
+    #Velocity Scaling
     norms = np.linalg.norm(V, axis=1, keepdims=True) + eps
     
     for i in range(n):
